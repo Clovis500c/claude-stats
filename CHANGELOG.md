@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `--cost`: optional banner with the cost of the last 30 days at API prices (off by default), also asked by `setup`.
+- The local summary printed after a render shows that cost.
+
 ## [0.6.1] - 2026-09-24
 
 ### Changed

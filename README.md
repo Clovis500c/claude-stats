@@ -111,6 +111,7 @@ The setup will:
 | `--tiles <list>` | Stat tiles to show, in order (see below) | first 8 |
 | `--hide <list>` | Sections to leave out: `header`, `tiles`, `heatmap`, `book`, `tokens`, `models`, `tools` | none |
 | `--transparent` | No card background | off |
+| `--cost` | Adds a banner with what the last 30 days would have cost at API prices (see [Spend banner](#spend-banner)) | off |
 
 Available tiles: `sessions`, `prompts`, `activeDays`, `streak`, `generated`, `toolCalls`, `peakHour`, `favorite`, `responses`, `processed`.
 
@@ -131,7 +132,7 @@ Available tiles: `sessions`, `prompts`, `activeDays`, `streak`, `generated`, `to
 |---|---|
 | <img src="examples/green-52-weeks.svg" width="400" /><br>`--palette green --accent "#39d353" --weeks 52` | <img src="examples/purple-compact.svg" width="400" /><br>`--palette purple --accent "#8c70e6" --title "My AI pair-programming" --hide tokens,models,tools` |
 | <img src="examples/light-pink.svg" width="400" /><br>`--theme light --palette pink --accent "#cc4589" --hide tools` | <img src="examples/stats-only.svg" width="400" /><br>`--tiles prompts,generated,streak,favorite --hide heatmap,tools --palette orange` |
-| <img src="examples/heatmap-only.svg" width="400" /><br>`--hide header,tiles,book,tokens,models,tools --palette gray --transparent` | |
+| <img src="examples/heatmap-only.svg" width="400" /><br>`--hide header,tiles,book,tokens,models,tools --palette gray --transparent` | <img src="examples/cost-banner.svg" width="400" /><br>`--cost --hide tiles,heatmap,book,tokens,models,tools` |
 
 ### Light and dark mode
 
@@ -153,7 +154,7 @@ A job (Task Scheduler on Windows, cron on macOS and Linux) wakes up every hour a
 
 ## Privacy
 
-Only aggregated numbers end up in the SVG: counts, token totals, per-day prompt counts, model names and the names of your most-used tools. **No prompts, code, file names or project names ever leave your machine.** Use `--hide tools` to leave tool names off the card.
+Only aggregated numbers end up in the SVG: counts, token totals, per-day prompt counts, model names and the names of your most-used tools. **No prompts, code, file names or project names ever leave your machine.** Use `--hide tools` to leave tool names off the card. The spend banner is off by default, since it shows an amount of money on your public profile.
 
 The GitHub token is read from `gh` or `GITHUB_TOKEN` at run time and is never stored by this tool. The only file it writes outside the output folder is `~/.claude-usage-chart.json`, which records the time of the last upload per repository.
 
@@ -164,7 +165,7 @@ Claude Code transcripts (`~/.claude/projects/**/*.jsonl`) contain a lot of repet
 - one API response is written as several lines (one per content block), each repeating the same token usage → each response is counted **once**;
 - resumed sessions copy earlier messages into a new file → each message is counted **once**;
 - most "user" lines are tool results or system notices → only messages you actually typed count as **prompts**;
-- subagent traffic is excluded.
+- subagent traffic is excluded (except from the spend banner: subagents are billed too).
 
 | Stat | Definition |
 |---|---|
@@ -181,6 +182,12 @@ Claude Code transcripts (`~/.claude/projects/**/*.jsonl`) contain a lot of repet
 | Book line | Output tokens compared with the length of a well-known book |
 
 Numbers can differ from the Claude app's stats card, which sums the repeated lines.
+
+### Spend banner
+
+`--cost` adds a banner with the cost of the last 30 days of Claude Code usage, **estimated at Anthropic API list prices**, like Claude Code's own cost display. Each response is priced by model: input, cache writes (1.25× input for the 5-minute cache, 2× for the 1-hour cache), cache reads, output, fast mode (2×) and web searches ($10 per 1,000). Subagents are included.
+
+On a Pro or Max plan this is the API value of what you used, not what you paid. Responses from models without a known price are left out; `claude-stats` (without `push`) prints how many.
 
 <details>
 <summary><strong>The book comparison</strong></summary>
@@ -237,6 +244,7 @@ npm run preview          # render your own card to preview/claude-stats.svg
 | `src/collect.js` | Reads and de-duplicates transcripts, computes the stats |
 | `src/render.js` | Renders the SVG card (themes, palettes, translations) |
 | `src/books.js` | Book lengths for the output comparison |
+| `src/pricing.js` | API prices per model, for the spend banner |
 | `src/github.js` | Uploads through the GitHub contents API |
 | `src/schedule.js` | Automatic refresh (Task Scheduler / cron) |
 | `test/` | Unit tests |

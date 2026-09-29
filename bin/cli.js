@@ -6,6 +6,7 @@ import { createInterface } from 'node:readline/promises';
 import { loadEvents, aggregate, dailyCounts } from '../src/collect.js';
 import { renderCard, PALETTES, SECTIONS, TILES, DEFAULT_TILES, parseColor, prettyModel, compact } from '../src/render.js';
 import { getToken, currentUser, putFile } from '../src/github.js';
+import { totalCost } from '../src/pricing.js';
 import { schedule, unschedule, isDue, markPushed, FREQUENCIES } from '../src/schedule.js';
 
 const HELP = `claude-stats — your Claude Code usage card, for your GitHub README
@@ -34,6 +35,7 @@ Look
   --hide <list>            sections to leave out: ${SECTIONS.join(', ')}
   --hide-tools             same as --hide tools
   --transparent            no card background
+  --cost                   add a banner with what the last 30 days would cost at API prices (off by default)
   --dir <path>             folder inside the repo (default: claude-stats)
   --branch <name>          target branch (default: repo default)
   --out <dir>              local output folder for generate (default: .)
@@ -62,6 +64,7 @@ const { positionals, values: opt } = parseArgs({
     tiles: { type: 'string' },
     hide: { type: 'string' },
     transparent: { type: 'boolean', default: false },
+    cost: { type: 'boolean', default: false },
     help: { type: 'boolean', short: 'h' },
     version: { type: 'boolean', short: 'v' },
   },
@@ -98,12 +101,13 @@ function build() {
   if (!events.prompts.length && !events.responses.length) throw new Error('No Claude Code transcripts found in ~/.claude/projects.');
   const stats = aggregate(events, opt.range);
   const counts = dailyCounts(events);
-  const card = (theme) => renderCard(stats, counts, { ...look, lang: opt.lang, theme, name: opt.name });
+  const cost = totalCost(events);
+  const card = (theme) => renderCard(stats, counts, { ...look, lang: opt.lang, theme, name: opt.name, cost: opt.cost ? cost : null });
   // auto = dark + light files, picked by the visitor's theme in the README
   const files = opt.theme === 'auto'
     ? { 'claude-stats.svg': card('dark'), 'claude-stats-light.svg': card('light') }
     : { 'claude-stats.svg': card(opt.theme === 'light' ? 'light' : 'dark') };
-  return { stats, files };
+  return { stats, cost, files };
 }
 
 function snippet(repo, dir, branch = 'HEAD') {
@@ -145,7 +149,7 @@ const jobArgs = () => {
   const a = ['push', '--repo', opt.repo, '--theme', opt.theme, '--lang', opt.lang, '--range', opt.range, '--dir', opt.dir, '--name', opt.name];
   // Forward every option the user set, so the scheduled card looks the same.
   for (const k of ['branch', 'title', 'palette', 'accent', 'weeks', 'tiles', 'hide']) if (opt[k] != null) a.push(`--${k}`, String(opt[k]));
-  for (const k of ['hide-tools', 'transparent']) if (opt[k]) a.push(`--${k}`);
+  for (const k of ['hide-tools', 'transparent', 'cost']) if (opt[k]) a.push(`--${k}`);
   return a;
 };
 
@@ -173,6 +177,7 @@ async function setup() {
     opt.title = await ask('Card title?', opt.title || 'Claude Code usage');
     const hide = await ask(`Sections to hide, comma-separated (${SECTIONS.join(', ')})?`, opt.hide || 'none');
     opt.hide = hide === 'none' ? undefined : hide;
+    opt.cost = (await ask('Show what the last 30 days cost at API prices? y/n', opt.cost ? 'y' : 'n')).toLowerCase().startsWith('y');
   }
   lookOptions(); // fail before publishing if an answer is invalid
 
@@ -202,7 +207,7 @@ async function setup() {
 }
 
 // Short human-readable recap printed after a local render.
-function summary(stats) {
+function summary(stats, cost) {
   const n = (x) => x.toLocaleString('en-US');
   const rows = [
     ['Sessions', n(stats.sessions)],
@@ -212,6 +217,7 @@ function summary(stats) {
     ['Tokens processed', compact(stats.tokensTotal)],
     ['Tool calls', n(stats.toolCalls)],
     ['Favorite model', prettyModel(stats.favoriteModel)],
+    [`Cost, last ${cost.days} days`, `$${cost.usd.toFixed(2)} at API prices${cost.unpriced ? ` (${cost.unpriced} responses from unknown models not counted)` : ''}`],
   ];
   const w = Math.max(...rows.map(([k]) => k.length));
   return rows.map(([k, v]) => `  ${k.padEnd(w)}  ${v}`).join('\n');
@@ -228,11 +234,11 @@ async function main() {
   if (opt.help || cmd === 'help') return console.log(HELP);
   switch (cmd) {
     case 'generate': {
-      const { stats, files } = build();
+      const { stats, cost, files } = build();
       fs.mkdirSync(opt.out, { recursive: true });
       for (const [name, svg] of Object.entries(files)) fs.writeFileSync(path.join(opt.out, name), svg);
       console.log(`✔ Wrote ${Object.keys(files).join(', ')} to ${path.resolve(opt.out)}`);
-      console.log(summary(stats));
+      console.log(summary(stats, cost));
       break;
     }
     case 'push': await push(); break;

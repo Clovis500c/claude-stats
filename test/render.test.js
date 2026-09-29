@@ -38,6 +38,16 @@ test('light theme and French labels', () => {
   assert.ok(svg.includes('Outils les plus utilisés'));
 });
 
+test('the spend banner only appears when asked for', () => {
+  assert.ok(!renderCard(stats, counts, { now }).includes('id="spend"'));
+  const svg = renderCard(stats, counts, { now, cost: { usd: 1234.5, days: 30 } });
+  assert.ok(svg.includes('id="spend"'));
+  assert.ok(svg.includes('$1,235'));
+  assert.ok(svg.includes('spent in the last 30 days'));
+  // light accent → dark text
+  assert.ok(renderCard(stats, counts, { now, accent: '#39d353', cost: { usd: 5, days: 30 } }).includes('fill="#1f1e1d">$5.00'));
+});
+
 test('helpers', () => {
   assert.equal(prettyModel('claude-sonnet-4-5-20250929'), 'Sonnet 4.5');
   assert.equal(prettyModel(null), '—');

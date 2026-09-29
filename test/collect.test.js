@@ -42,6 +42,17 @@ test('counts a response split over several lines once, keeping the largest usage
   assert.equal(ev.tools.length, 1);
 });
 
+test('subagent responses are kept for the cost but left out of the stats', () => {
+  const dir = fixture([
+    assistant('m1', [{ type: 'text', text: 'a' }]),
+    { ...assistant('m2', [{ type: 'tool_use', id: 't9', name: 'Read' }]), isSidechain: true },
+  ]);
+  const ev = loadEvents(dir);
+  assert.equal(ev.responses.length, 2);
+  assert.equal(ev.tools.length, 0);
+  assert.equal(aggregate(ev).responses, 1);
+});
+
 test('aggregates tokens, models, tools and streaks', () => {
   const day = (d) => new Date(`2026-03-${d}T10:00:00`);
   const stats = aggregate({

@@ -40,7 +40,8 @@ function promptText(o) {
   return c.find((b) => b.type === 'text')?.text ?? '';
 }
 
-// Returns { prompts: [{ts, session}], responses: [{ts, session, model, usage}], tools: [{ts, name}] }
+// Returns { prompts: [{ts, session}], responses: [{ts, session, model, usage, speed, webSearches, sidechain}], tools: [{ts, name}] }
+// Subagent (sidechain) responses are kept for the cost estimate but left out of the stats.
 export function loadEvents(dir = path.join(claudeDir(), 'projects')) {
   const prompts = new Map(); // uuid → prompt
   const responses = new Map(); // message id → response
@@ -52,29 +53,37 @@ export function loadEvents(dir = path.join(claudeDir(), 'projects')) {
       if (!line) continue;
       let o;
       try { o = JSON.parse(line); } catch { continue; }
-      if (!o.timestamp || o.isSidechain) continue; // subagent traffic is not the user's
+      if (!o.timestamp) continue;
       const ts = new Date(o.timestamp);
 
+      if (o.isSidechain && o.type !== 'assistant') continue; // subagent prompts are not the user's
       if (o.type === 'user' && !o.isMeta && o.uuid && !prompts.has(o.uuid)) {
         const t = promptText(o);
         if (t != null && !SYNTHETIC.test(t.trimStart())) prompts.set(o.uuid, { ts, session: o.sessionId });
       } else if (o.type === 'assistant' && o.message?.id && o.message.usage) {
-        for (const b of o.message.content || []) {
+        for (const b of (o.isSidechain ? null : o.message.content) || []) {
           if (b.type === 'tool_use' && b.id && !tools.has(b.id)) tools.set(b.id, { ts, name: b.name });
         }
         const u = o.message.usage;
         const prev = responses.get(o.message.id);
         // Streaming lines can carry partial counts; keep the largest of each.
-        const pick = (k) => Math.max(prev?.usage[k] || 0, u[k] || 0);
+        const max = (a, b) => (a == null && b == null ? undefined : Math.max(a || 0, b || 0));
+        const pick = (k) => max(prev?.usage[k], u[k]) || 0;
         responses.set(o.message.id, {
           ts: prev?.ts ?? ts,
           session: o.sessionId,
           model: o.message.model,
+          sidechain: !!o.isSidechain,
+          speed: u.speed ?? prev?.speed,
+          webSearches: max(prev?.webSearches, u.server_tool_use?.web_search_requests) || 0,
           usage: {
             input_tokens: pick('input_tokens'),
             output_tokens: pick('output_tokens'),
             cache_creation_input_tokens: pick('cache_creation_input_tokens'),
             cache_read_input_tokens: pick('cache_read_input_tokens'),
+            // split of the cache writes by lifetime, when the transcript has it
+            cache_write_5m: max(prev?.usage.cache_write_5m, u.cache_creation?.ephemeral_5m_input_tokens),
+            cache_write_1h: max(prev?.usage.cache_write_1h, u.cache_creation?.ephemeral_1h_input_tokens),
           },
         });
       }
@@ -104,7 +113,7 @@ export function aggregate({ prompts, responses, tools = [] }, range = 'all') {
   const days = RANGES[range] ?? Infinity;
   const since = days === Infinity ? 0 : Date.now() - days * 86400000;
   const P = prompts.filter((e) => e.ts.getTime() >= since);
-  const R = responses.filter((e) => e.ts.getTime() >= since);
+  const R = responses.filter((e) => !e.sidechain && e.ts.getTime() >= since);
   const T = tools.filter((e) => e.ts.getTime() >= since);
 
   const sessions = new Set();
