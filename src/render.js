@@ -48,6 +48,7 @@ const I18N = {
     book: (n, title) => `Claude wrote ≈ ${n}× the length of ${title}`,
     less: 'Less', more: 'More',
     tokens: 'Tokens', processedTotal: (n) => `${n} processed in total`,
+    spent: (days) => `spent in the last ${days} days`, apiPrices: 'at API prices',
     tokGenerated: 'Written by Claude', tokAdded: 'Added to context', tokReread: 'Re-read from cache',
     models: 'Models', byOutput: 'share of generated tokens',
     tools: 'Top tools', other: 'Other',
@@ -65,6 +66,7 @@ const I18N = {
     book: (n, title) => `Claude a écrit ≈ ${n}× la longueur ${title}`,
     less: 'Moins', more: 'Plus',
     tokens: 'Tokens', processedTotal: (n) => `${n} traités au total`,
+    spent: (days) => `dépensés ces ${days} derniers jours`, apiPrices: 'au tarif API',
     tokGenerated: 'Écrits par Claude', tokAdded: 'Ajoutés au contexte', tokReread: 'Relus depuis le cache',
     models: 'Modèles', byOutput: 'part des tokens générés',
     tools: 'Outils les plus utilisés', other: 'Autres',
@@ -100,6 +102,27 @@ export function parseColor(s) {
   return m ? `#${m[1].toLowerCase()}` : null;
 }
 
+// Same color with its hue turned by `deg` degrees, for the banner gradient.
+function shiftHue(hex, deg) {
+  const n = parseInt(hex.slice(1).replace(/^(.)(.)(.)$/, '$1$1$2$2$3$3'), 16);
+  const [r, g, b] = [n >> 16, (n >> 8) & 255, n & 255].map((v) => v / 255);
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2, d = max - min;
+  const sat = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+  let h = d === 0 ? 0 : max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  h = (h * 60 + deg + 360) % 360;
+  const c = (1 - Math.abs(2 * l - 1)) * sat, x = c * (1 - Math.abs(((h / 60) % 2) - 1)), m = l - c / 2;
+  const [r1, g1, b1] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+  return `#${[r1, g1, b1].map((v) => Math.round((v + m) * 255).toString(16).padStart(2, '0')).join('')}`;
+}
+
+// Relative luminance (WCAG) of a #rrggbb color, 0 (black) to 1 (white).
+function luminance(hex) {
+  const n = parseInt(hex.slice(1).replace(/^(.)(.)(.)$/, '$1$1$2$2$3$3'), 16);
+  const lin = (v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+  const [r, g, b] = [n >> 16, (n >> 8) & 255, n & 255].map((v) => lin(v / 255));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
 // SVG can't measure text; a rough per-character width is enough for layout.
 const textW = (s, size) => String(s).length * size * 0.52;
 
@@ -113,7 +136,7 @@ export function renderCard(stats, counts, opts = {}) {
   const {
     theme = 'dark', lang = 'en', name, title, now = new Date(),
     palette = 'blue', accent = DEFAULT_ACCENT, transparent = false,
-    weeks = 26, hide = [], tiles: tileKeys = DEFAULT_TILES,
+    weeks = 26, hide = [], tiles: tileKeys = DEFAULT_TILES, cost = null,
   } = opts;
   const c = THEMES[theme] || THEMES.dark;
   const t = I18N[lang] || I18N.en;
@@ -175,6 +198,27 @@ export function renderCard(stats, counts, opts = {}) {
     const date = now.toLocaleDateString(t.locale, { month: 'short', day: 'numeric', year: 'numeric' });
     text(pad + 44, y + 30, [name && `@${name}`, t.range[stats.range] || t.range.all, t.updated(date)].filter(Boolean).join(' · '), { size: 11.5 });
     y += 32;
+  }
+
+  // ---- Spend banner (opt-in): API value of the usage over the last N days ----
+  if (cost) {
+    gapBefore(16);
+    const bh = 54;
+    const end = shiftHue(acc, -45);
+    // white text on dark gradients, near-black on light ones
+    const ink = Math.max(luminance(acc), luminance(end)) > 0.4 ? '#1f1e1d' : '#ffffff';
+    out.push(`<defs><linearGradient id="spend" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${acc}"/><stop offset="1" stop-color="${end}"/></linearGradient></defs>`);
+    rect(pad, y, inner, bh, 'url(#spend)', 10);
+    // soft highlight across the top half
+    out.push(`<rect x="${pad}" y="${y}" width="${inner}" height="${bh / 2}" rx="10" fill="#ffffff" fill-opacity="0.08"/>`);
+    const usd = cost.usd.toLocaleString(t.locale, {
+      style: 'currency', currency: 'USD', maximumFractionDigits: cost.usd >= 1000 ? 0 : 2, minimumFractionDigits: cost.usd >= 1000 ? 0 : 2,
+    });
+    text(pad + 16, y + 35, usd, { size: 24, fill: ink, weight: 700 });
+    const lx = pad + 16 + textW(usd, 24) + 12;
+    text(lx, y + 24, t.spent(cost.days), { size: 12, fill: ink, weight: 600 });
+    out.push(`<text x="${+lx.toFixed(1)}" y="${y + 40}" font-size="11" fill="${ink}" fill-opacity="0.8">${esc(t.apiPrices)}</text>`);
+    y += bh;
   }
 
   // ---- Stat tiles ----
