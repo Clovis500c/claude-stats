@@ -48,7 +48,9 @@ const I18N = {
     book: (n, title) => `Claude wrote ≈ ${n}× the length of ${title}`,
     less: 'Less', more: 'More',
     tokens: 'Tokens', processedTotal: (n) => `${n} processed in total`,
-    spent: (days) => `spent in the last ${days} days`, apiPrices: 'at API prices',
+    // spend banner: say plainly it's an estimate at API prices, not money paid
+    period: { '30d': 'last 30 days', '5m': 'last 5 months', '1y': 'last 12 months' },
+    spent: (period) => `worth of usage · ${period}`, apiPrices: 'at API prices, not the amount paid',
     tokGenerated: 'Written by Claude', tokAdded: 'Added to context', tokReread: 'Re-read from cache',
     models: 'Models', byOutput: 'share of generated tokens',
     tiers: { bronze: 'Bronze', silver: 'Silver', gold: 'Gold', diamond: 'Diamond', legendary: 'Legendary' },
@@ -67,7 +69,8 @@ const I18N = {
     book: (n, title) => `Claude a écrit ≈ ${n}× la longueur ${title}`,
     less: 'Moins', more: 'Plus',
     tokens: 'Tokens', processedTotal: (n) => `${n} traités au total`,
-    spent: (days) => `dépensés ces ${days} derniers jours`, apiPrices: 'au tarif API',
+    period: { '30d': '30 derniers jours', '5m': '5 derniers mois', '1y': '12 derniers mois' },
+    spent: (period) => `d'utilisation · ${period}`, apiPrices: 'au tarif API, pas le montant payé',
     tokGenerated: 'Écrits par Claude', tokAdded: 'Ajoutés au contexte', tokReread: 'Relus depuis le cache',
     models: 'Modèles', byOutput: 'part des tokens générés',
     tiers: { bronze: 'Bronze', silver: 'Argent', gold: 'Or', diamond: 'Diamant', legendary: 'Légendaire' },
@@ -117,7 +120,7 @@ const TIERS = [
 export const spendTier = (usd) => TIERS.findLast((x) => usd >= x.min);
 
 // Sparkle spots as fractions of the banner, kept off the text and the tier pill.
-const SPARKS = [[0.62, 0.26, 6.5], [0.7, 0.74, 4.5], [0.55, 0.76, 5], [0.79, 0.17, 5], [0.49, 0.22, 4], [0.9, 0.84, 5], [0.97, 0.2, 4]];
+const SPARKS = [[0.68, 0.22, 6.5], [0.72, 0.8, 4.5], [0.63, 0.88, 4], [0.79, 0.15, 5], [0.6, 0.12, 3.5], [0.9, 0.84, 5], [0.97, 0.2, 4]];
 const star = (x, y, r) => `M${x} ${y - r}Q${x} ${y} ${x + r} ${y}Q${x} ${y} ${x} ${y + r}Q${x} ${y} ${x - r} ${y}Q${x} ${y} ${x} ${y - r}Z`;
 
 // SVG can't measure text; a rough per-character width is enough for layout.
@@ -201,7 +204,8 @@ export function renderCard(stats, counts, opts = {}) {
   if (cost) {
     gapBefore(16);
     const bh = 58;
-    const tier = spendTier(cost.usd);
+    // tier from the average per 30 days, so a longer window doesn't inflate it
+    const tier = spendTier((cost.usd * 30) / (cost.days || 30));
     const { ink, stops } = tier;
     const dark = ink === '#ffffff';
     const grad = tier.flow
@@ -242,7 +246,7 @@ export function renderCard(stats, counts, opts = {}) {
     out.push(`<text x="${pad + 16}" y="${y + 39}" font-size="26" font-weight="800" fill="${dark ? '#000000' : '#ffffff'}" fill-opacity="${dark ? 0.3 : 0.6}">${esc(usd)}</text>`);
     text(pad + 16, y + 38, usd, { size: 26, fill: ink, weight: 800 });
     const lx = pad + 16 + textW(usd, 26) * 1.08 + 12; // heavy weight runs wider than textW
-    text(lx, y + 26, t.spent(cost.days), { size: 12, fill: ink, weight: 600 });
+    text(lx, y + 26, t.spent(t.period[cost.period] ?? t.period['30d']), { size: 12, fill: ink, weight: 600 });
     out.push(`<text x="${+lx.toFixed(1)}" y="${y + 42}" font-size="11" fill="${ink}" fill-opacity="0.8">${esc(t.apiPrices)}</text>`);
 
     // tier pill on the right

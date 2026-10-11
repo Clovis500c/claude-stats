@@ -41,3 +41,12 @@ test('the total covers the window only and reports unknown models', () => {
   assert.equal(t.unpriced, 1);
   assert.equal(t.days, 30);
 });
+
+test('month windows are calendar months', () => {
+  const now = new Date(2026, 6, 31, 12); // 31 July
+  const r = (d) => ({ ts: d, model: 'claude-haiku-4-5', usage: usage({ output_tokens: 1e6 }) });
+  const t = totalCost({ responses: [r(new Date(2026, 1, 28, 13)), r(new Date(2026, 1, 28, 11))] }, { period: '5m', now });
+  assert.equal(t.usd, 5); // window starts 28 Feb 12:00 (no 31 Feb)
+  assert.equal(totalCost({ responses: [r(new Date(2025, 7, 1))] }, { period: '1y', now }).usd, 5);
+  assert.equal(totalCost({ responses: [r(new Date(2025, 6, 30))] }, { period: '1y', now }).usd, 0);
+});

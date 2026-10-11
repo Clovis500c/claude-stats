@@ -6,7 +6,7 @@ import { createInterface } from 'node:readline/promises';
 import { loadEvents, aggregate, dailyCounts } from '../src/collect.js';
 import { renderCard, PALETTES, SECTIONS, TILES, DEFAULT_TILES, parseColor, prettyModel, compact } from '../src/render.js';
 import { getToken, currentUser, putFile } from '../src/github.js';
-import { totalCost } from '../src/pricing.js';
+import { totalCost, COST_PERIODS } from '../src/pricing.js';
 import { schedule, unschedule, isDue, markPushed, FREQUENCIES } from '../src/schedule.js';
 
 const HELP = `claude-stats — your Claude Code usage card, for your GitHub README
@@ -35,7 +35,8 @@ Look
   --hide <list>            sections to leave out: ${SECTIONS.join(', ')}
   --hide-tools             same as --hide tools
   --transparent            no card background
-  --cost                   add a banner with what the last 30 days would cost at API prices (off by default)
+  --cost                   add a banner with what your usage would cost at API prices (off by default)
+  --cost-period 30d|5m|1y  window of that banner: last 30 days, 5 months or 12 months (default: 30d)
   --dir <path>             folder inside the repo (default: claude-stats)
   --branch <name>          target branch (default: repo default)
   --out <dir>              local output folder for generate (default: .)
@@ -65,6 +66,7 @@ const { positionals, values: opt } = parseArgs({
     hide: { type: 'string' },
     transparent: { type: 'boolean', default: false },
     cost: { type: 'boolean', default: false },
+    'cost-period': { type: 'string', default: '30d' },
     help: { type: 'boolean', short: 'h' },
     version: { type: 'boolean', short: 'v' },
   },
@@ -80,6 +82,7 @@ function lookOptions() {
   oneOf('theme', ['dark', 'light', 'auto']);
   oneOf('lang', ['en', 'fr']);
   oneOf('range', ['all', '30d', '7d']);
+  oneOf('cost-period', Object.keys(COST_PERIODS));
   if (opt.repo && !/^[\w.-]+\/[\w.-]+$/.test(opt.repo)) throw new Error(`Invalid --repo "${opt.repo}". Use the form owner/name`);
   if (!PALETTES[opt.palette]) throw new Error(`Unknown palette "${opt.palette}". Use one of: ${Object.keys(PALETTES).join(', ')}`);
   if (opt.accent && !parseColor(opt.accent)) throw new Error(`Invalid --accent "${opt.accent}". Use a hex color like #d97757`);
@@ -101,7 +104,7 @@ function build() {
   if (!events.prompts.length && !events.responses.length) throw new Error('No Claude Code transcripts found in ~/.claude/projects.');
   const stats = aggregate(events, opt.range);
   const counts = dailyCounts(events);
-  const cost = totalCost(events);
+  const cost = totalCost(events, { period: opt['cost-period'] });
   const card = (theme) => renderCard(stats, counts, { ...look, lang: opt.lang, theme, name: opt.name, cost: opt.cost ? cost : null });
   // auto = dark + light files, picked by the visitor's theme in the README
   const files = opt.theme === 'auto'
@@ -148,7 +151,7 @@ async function push() {
 const jobArgs = () => {
   const a = ['push', '--repo', opt.repo, '--theme', opt.theme, '--lang', opt.lang, '--range', opt.range, '--dir', opt.dir, '--name', opt.name];
   // Forward every option the user set, so the scheduled card looks the same.
-  for (const k of ['branch', 'title', 'palette', 'accent', 'weeks', 'tiles', 'hide']) if (opt[k] != null) a.push(`--${k}`, String(opt[k]));
+  for (const k of ['branch', 'title', 'palette', 'accent', 'weeks', 'tiles', 'hide', 'cost-period']) if (opt[k] != null) a.push(`--${k}`, String(opt[k]));
   for (const k of ['hide-tools', 'transparent', 'cost']) if (opt[k]) a.push(`--${k}`);
   return a;
 };
@@ -177,7 +180,8 @@ async function setup() {
     opt.title = await ask('Card title?', opt.title || 'Claude Code usage');
     const hide = await ask(`Sections to hide, comma-separated (${SECTIONS.join(', ')})?`, opt.hide || 'none');
     opt.hide = hide === 'none' ? undefined : hide;
-    opt.cost = (await ask('Show what the last 30 days cost at API prices? y/n', opt.cost ? 'y' : 'n')).toLowerCase().startsWith('y');
+    opt.cost = (await ask('Show what your usage would cost at API prices? y/n', opt.cost ? 'y' : 'n')).toLowerCase().startsWith('y');
+    if (opt.cost) opt['cost-period'] = await ask('Over the last 30d, 5m (5 months) or 1y (12 months)?', opt['cost-period']);
   }
   lookOptions(); // fail before publishing if an answer is invalid
 
@@ -218,7 +222,7 @@ function summary(stats, cost) {
     ['Tokens processed', compact(stats.tokensTotal)],
     ['Tool calls', n(stats.toolCalls)],
     ['Favorite model', prettyModel(stats.favoriteModel)],
-    [`Cost, last ${cost.days} days`, `$${cost.usd.toFixed(2)} at API prices${cost.unpriced ? ` (${cost.unpriced} responses from unknown models not counted)` : ''}`],
+    [`Cost, last ${cost.period}`, `$${cost.usd.toFixed(2)} at API prices${cost.unpriced ? ` (${cost.unpriced} responses from unknown models not counted)` : ''}`],
   ];
   const w = Math.max(...rows.map(([k]) => k.length));
   return rows.map(([k, v]) => `  ${k.padEnd(w)}  ${v}`).join('\n');

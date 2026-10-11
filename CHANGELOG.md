@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-11
+
+### Added
+- `--cost-period 30d|5m|1y`: the spend banner can cover the last 30 days, 5 months or 12 months (calendar months), also asked by `setup`.
+
+### Changed
+- The spend banner now says plainly that it is an estimate at API prices and not the amount paid ("worth of usage · last 30 days", "at API prices, not the amount paid").
+- The banner tier uses the average per 30 days, so longer windows don't inflate it.
+
 ## [0.8.0] - 2026-10-11
 
 ### Changed
@@ -56,7 +65,8 @@ All notable changes to this project are documented here. The format follows
 - Configurable refresh frequency; de-duplicated, honest stats.
 - English and French cards, light/dark/auto themes, guided `setup`.
 
-[Unreleased]: https://github.com/Clovis500c/claude-stats/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/Clovis500c/claude-stats/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/Clovis500c/claude-stats/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/Clovis500c/claude-stats/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Clovis500c/claude-stats/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/Clovis500c/claude-stats/compare/v0.6.0...v0.6.1

@@ -47,9 +47,22 @@ export function responseCost({ model, usage: u, speed, webSearches = 0 }) {
   return (tokens / 1e6) * (speed === 'fast' ? FAST_MULTIPLIER : 1) + webSearches * WEB_SEARCH;
 }
 
-// Total over the last `days` days, subagents included (they are billed too).
-export function totalCost({ responses }, { days = 30, now = new Date() } = {}) {
-  const since = now.getTime() - days * 86400000;
+// Spend windows. Months are calendar months, so "last 5 months" is exactly that.
+export const COST_PERIODS = { '30d': { days: 30 }, '5m': { months: 5 }, '1y': { months: 12 } };
+
+// Start of a window ending at `now`; a day missing in the target month clamps to its last day.
+function periodStart(now, { days, months }) {
+  if (!months) return new Date(now.getTime() - days * 86400000);
+  const d = new Date(now);
+  d.setDate(1);
+  d.setMonth(d.getMonth() - months);
+  d.setDate(Math.min(now.getDate(), new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
+  return d;
+}
+
+// Total over the period, subagents included (they are billed too).
+export function totalCost({ responses }, { period = '30d', now = new Date() } = {}) {
+  const since = periodStart(now, COST_PERIODS[period] ?? COST_PERIODS['30d']).getTime();
   let usd = 0, unpriced = 0;
   for (const r of responses) {
     if (r.ts.getTime() < since || r.ts > now) continue;
@@ -57,5 +70,5 @@ export function totalCost({ responses }, { days = 30, now = new Date() } = {}) {
     if (c == null) unpriced++;
     else usd += c;
   }
-  return { usd, days, unpriced };
+  return { usd, period, days: Math.round((now.getTime() - since) / 86400000), unpriced };
 }
