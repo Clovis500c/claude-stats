@@ -40,12 +40,16 @@ test('light theme and French labels', () => {
 
 test('the spend banner only appears when asked for', () => {
   assert.ok(!renderCard(stats, counts, { now }).includes('id="spend"'));
-  const svg = renderCard(stats, counts, { now, cost: { usd: 1234.5, days: 30 } });
+  const svg = renderCard(stats, counts, { now, cost: { usd: 1234.5, period: '30d', days: 30 } });
   assert.ok(svg.includes('id="spend"'));
   assert.ok(svg.includes('$1,235'));
-  assert.ok(svg.includes('spent in the last 30 days'));
+  assert.ok(svg.includes('worth of usage · last 30 days'));
+  assert.ok(svg.includes('not the amount paid'));
   assert.ok(svg.includes('GOLD'));
-  assert.ok(renderCard(stats, counts, { now, lang: 'fr', cost: { usd: 9000, days: 30 } }).includes('LÉGENDAIRE'));
+  assert.ok(renderCard(stats, counts, { now, lang: 'fr', cost: { usd: 9000, period: '30d', days: 30 } }).includes('LÉGENDAIRE'));
+  // $6,100 over 12 months is ~$500 a month: Gold, not Legendary
+  const year = renderCard(stats, counts, { now, lang: 'fr', cost: { usd: 6100, period: '1y', days: 365 } });
+  assert.ok(year.includes('12 derniers mois') && year.includes('pas le montant payé') && year.includes('>OR<'));
 });
 
 test('spend tiers climb with the cost', () => {

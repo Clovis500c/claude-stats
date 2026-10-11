@@ -111,7 +111,8 @@ The setup will:
 | `--tiles <list>` | Stat tiles to show, in order (see below) | first 8 |
 | `--hide <list>` | Sections to leave out: `header`, `tiles`, `heatmap`, `book`, `tokens`, `models`, `tools` | none |
 | `--transparent` | No card background | off |
-| `--cost` | Adds a banner with what the last 30 days would have cost at API prices (see [Spend banner](#spend-banner)) | off |
+| `--cost` | Adds a banner with what your usage would have cost at API prices (see [Spend banner](#spend-banner)) | off |
+| `--cost-period 30d\|5m\|1y` | Window of that banner: last 30 days, last 5 months or last 12 months | `30d` |
 
 Available tiles: `sessions`, `messages`, `prompts`, `activeDays`, `streak`, `generated`, `toolCalls`, `peakHour`, `favorite`, `responses`, `processed`.
 
@@ -188,11 +189,11 @@ The spend banner is always de-duplicated: it estimates what was actually billed.
 
 ### Spend banner
 
-`--cost` adds a banner with the cost of the last 30 days of Claude Code usage, **estimated at Anthropic API list prices**, like Claude Code's own cost display. Each response is priced by model: input, cache writes (1.25× input for the 5-minute cache, 2× for the 1-hour cache), cache reads, output, fast mode (2×) and web searches ($10 per 1,000). Subagents are included.
+`--cost` adds a banner with the cost of your Claude Code usage over the last 30 days, 5 months or 12 months (`--cost-period 30d|5m|1y`; months are calendar months), **estimated at Anthropic API list prices**, like Claude Code's own cost display. Each response is priced by model: input, cache writes (1.25× input for the 5-minute cache, 2× for the 1-hour cache), cache reads, output, fast mode (2×) and web searches ($10 per 1,000). Subagents are included.
 
-The banner's look climbs with the amount: **Bronze** (under $100), **Silver** ($100+), **Gold** ($500+, sparkles), **Diamond** ($1,500+) and **Legendary** ($5,000+, flowing rainbow). The glint and sparkles are animated, and stay still for visitors who prefer reduced motion.
+The banner's look climbs with the average per 30 days, so a longer window doesn't inflate it: **Bronze** (under $100), **Silver** ($100+), **Gold** ($500+, sparkles), **Diamond** ($1,500+) and **Legendary** ($5,000+, flowing rainbow). The glint and sparkles are animated, and stay still for visitors who prefer reduced motion.
 
-On a Pro or Max plan this is the API value of what you used, not what you paid. Responses from models without a known price are left out; `claude-stats` (without `push`) prints how many.
+**This is not what you paid.** The banner itself says so ("at API prices, not the amount paid"): on a Pro or Max plan it is the API value of what you used, while the subscription price stays the same. It only covers the history still on your machine: Claude Code deletes transcripts older than 30 days unless you raise `cleanupPeriodDays` in its settings, so a 5- or 12-month window can show less than you really used. Responses from models without a known price are left out; `claude-stats` (without `push`) prints how many.
 
 <details>
 <summary><strong>The book comparison</strong></summary>

@@ -19,15 +19,15 @@
 <rect x="16" y="64" width="488" height="58" fill="url(#spend)"/>
 <rect x="16" y="64" width="488" height="29" fill="#ffffff" fill-opacity="0.1"/>
 <g class="cs-shine"><rect x="-150" y="54" width="90" height="78" fill="url(#spend-shine)" transform="skewX(-20)"/></g>
-<path class="cs-spark" style="animation-delay:0.00s" d="M318.6 72.6Q318.6 79.1 325.1 79.1Q318.6 79.1 318.6 85.6Q318.6 79.1 312.1 79.1Q318.6 79.1 318.6 72.6Z" fill="#ffffff"/>
-<path class="cs-spark" style="animation-delay:0.37s" d="M357.6 102.4Q357.6 106.9 362.1 106.9Q357.6 106.9 357.6 111.4Q357.6 106.9 353.1 106.9Q357.6 106.9 357.6 102.4Z" fill="#ffffff"/>
-<path class="cs-spark" style="animation-delay:0.74s" d="M284.4 103.1Q284.4 108.1 289.4 108.1Q284.4 108.1 284.4 113.1Q284.4 108.1 279.4 108.1Q284.4 108.1 284.4 103.1Z" fill="#ffffff"/>
+<path class="cs-spark" style="animation-delay:0.00s" d="M347.8 70.3Q347.8 76.8 354.3 76.8Q347.8 76.8 347.8 83.3Q347.8 76.8 341.3 76.8Q347.8 76.8 347.8 70.3Z" fill="#ffffff"/>
+<path class="cs-spark" style="animation-delay:0.37s" d="M367.4 105.9Q367.4 110.4 371.9 110.4Q367.4 110.4 367.4 114.9Q367.4 110.4 362.9 110.4Q367.4 110.4 367.4 105.9Z" fill="#ffffff"/>
+<path class="cs-spark" style="animation-delay:0.74s" d="M323.4 111Q323.4 115 327.4 115Q323.4 115 323.4 119Q323.4 115 319.4 115Q323.4 115 323.4 111Z" fill="#ffffff"/>
 <rect x="16.5" y="64.5" width="487" height="57" rx="9.5" fill="none" stroke="#ffffff" stroke-opacity="0.6"/>
 </g>
 <text x="32" y="103" font-size="26" font-weight="800" fill="#ffffff" fill-opacity="0.6">$1,284</text>
 <text x="32" y="102" font-size="26" font-weight="800" fill="#3b2a06">$1,284</text>
-<text x="131.6" y="90" font-size="12" font-weight="600" fill="#3b2a06">spent in the last 30 days</text>
-<text x="131.6" y="106" font-size="11" fill="#3b2a06" fill-opacity="0.8">at API prices</text>
+<text x="131.6" y="90" font-size="12" font-weight="600" fill="#3b2a06">worth of usage · last 30 days</text>
+<text x="131.6" y="106" font-size="11" fill="#3b2a06" fill-opacity="0.8">at API prices, not the amount paid</text>
 <rect x="426.5" y="81" width="63.5" height="24" rx="12" fill="#3b2a06" fill-opacity="0.12" stroke="#3b2a06" stroke-opacity="0.3"/>
 <path d="M440.5 87.5Q440.5 93 446 93Q440.5 93 440.5 98.5Q440.5 93 435 93Q440.5 93 440.5 87.5Z" fill="#3b2a06"/>
 <text x="449.5" y="97" font-size="11" font-weight="700" letter-spacing="1" fill="#3b2a06">GOLD</text>
