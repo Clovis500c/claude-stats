@@ -211,6 +211,7 @@ function summary(stats, cost) {
   const n = (x) => x.toLocaleString('en-US');
   const rows = [
     ['Sessions', n(stats.sessions)],
+    ['Messages', n(stats.messages)],
     ['Prompts', n(stats.prompts)],
     ['Active days', `${n(stats.activeDays)} (longest streak: ${stats.longestStreak})`],
     ['Tokens generated', compact(stats.tokens.output)],

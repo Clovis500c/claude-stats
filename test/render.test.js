@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { renderCard, prettyModel, compact, parseColor, SECTIONS } from '../src/render.js';
+import { renderCard, prettyModel, compact, parseColor, spendTier, SECTIONS } from '../src/render.js';
 import { pickBook } from '../src/books.js';
 
 const stats = {
-  range: 'all', sessions: 12, prompts: 340, responses: 900, activeDays: 20, longestStreak: 6,
+  range: 'all', sessions: 12, messages: 5000, prompts: 340, responses: 900, activeDays: 20, longestStreak: 6,
   toolCalls: 1500, peakHour: 15, favoriteModel: 'claude-opus-4-5',
   tokens: { input: 1e4, output: 2e6, cacheWrite: 3e5, cacheRead: 9e7 }, tokensTotal: 1e4 + 2e6 + 3e5 + 9e7,
   models: [{ model: 'claude-opus-4-5', output: 1.5e6 }, { model: 'claude-sonnet-4-5', output: 5e5 }],
@@ -44,8 +44,13 @@ test('the spend banner only appears when asked for', () => {
   assert.ok(svg.includes('id="spend"'));
   assert.ok(svg.includes('$1,235'));
   assert.ok(svg.includes('spent in the last 30 days'));
-  // light accent → dark text
-  assert.ok(renderCard(stats, counts, { now, accent: '#39d353', cost: { usd: 5, days: 30 } }).includes('fill="#1f1e1d">$5.00'));
+  assert.ok(svg.includes('GOLD'));
+  assert.ok(renderCard(stats, counts, { now, lang: 'fr', cost: { usd: 9000, days: 30 } }).includes('LÉGENDAIRE'));
+});
+
+test('spend tiers climb with the cost', () => {
+  assert.deepEqual([0, 99, 100, 500, 1500, 5000, 1e6].map((usd) => spendTier(usd).key),
+    ['bronze', 'bronze', 'silver', 'gold', 'diamond', 'legendary', 'legendary']);
 });
 
 test('helpers', () => {
