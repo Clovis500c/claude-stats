@@ -38,7 +38,7 @@ Sessions, prompts, tokens, models, top tools and an activity heatmap — compute
 - **Complete overview** — sessions, prompts, active days, longest streak, generated tokens, tool calls, peak hour and favorite model.
 - **Activity heatmap** — prompts per day, from 8 to 52 weeks.
 - **Token and model breakdown** — what Claude wrote, what was added to context, what was re-read from cache, and the share of each model.
-- **Honest numbers** — transcripts are de-duplicated before counting (see [below](#how-the-numbers-are-computed)).
+- **Same numbers as the Claude app** — sessions, messages, tokens and peak hour are counted like the app's own stats card (see [below](#how-the-numbers-are-computed)).
 - **Fully customizable** — dark, light or auto theme, 6 heatmap palettes, accent color, title, tiles and sections.
 - **Automatic refresh** — from every hour to once a week, only committing when something changed.
 - **Private by design** — only aggregated numbers leave your machine.
@@ -113,7 +113,7 @@ The setup will:
 | `--transparent` | No card background | off |
 | `--cost` | Adds a banner with what the last 30 days would have cost at API prices (see [Spend banner](#spend-banner)) | off |
 
-Available tiles: `sessions`, `prompts`, `activeDays`, `streak`, `generated`, `toolCalls`, `peakHour`, `favorite`, `responses`, `processed`.
+Available tiles: `sessions`, `messages`, `prompts`, `activeDays`, `streak`, `generated`, `toolCalls`, `peakHour`, `favorite`, `responses`, `processed`.
 
 ### Content and publishing
 
@@ -160,32 +160,37 @@ The GitHub token is read from `gh` or `GITHUB_TOKEN` at run time and is never st
 
 ## How the numbers are computed
 
-Claude Code transcripts (`~/.claude/projects/**/*.jsonl`) contain a lot of repetition, so they are de-duplicated before counting:
+**Messages**, **tokens** (tiles, Tokens and Models bars, book line) and **peak hour** are counted like the Claude app's stats card, so both show the same numbers: every user/assistant line of a transcript is a message, and the token usage of every line is summed, subagents included. Since one response is written as several lines repeating the same usage, this counts a response several times (about 3.5× on a typical history).
+
+Everything else is de-duplicated, because Claude Code transcripts (`~/.claude/projects/**/*.jsonl`) contain a lot of repetition:
 
 - one API response is written as several lines (one per content block), each repeating the same token usage → each response is counted **once**;
 - resumed sessions copy earlier messages into a new file → each message is counted **once**;
 - most "user" lines are tool results or system notices → only messages you actually typed count as **prompts**;
-- subagent traffic is excluded (except from the spend banner: subagents are billed too).
+- subagent prompts and tool calls are excluded (the spend banner includes subagents: they are billed too).
 
 | Stat | Definition |
 |---|---|
 | Sessions | Distinct Claude Code sessions |
+| Messages | Every user and assistant line of the main sessions, like the Claude app (tool results included) |
 | Prompts | Messages you typed (no tool results, no system messages) |
 | Active days · Longest streak | Days with at least one prompt or response · most consecutive such days |
 | Tokens generated | Output tokens: everything Claude wrote (text, code, tool calls, thinking) |
 | Tool calls · Top tools | Tool uses by Claude, each counted once · the most frequent ones |
-| Peak hour | Hour of the day with the most prompts |
+| Peak hour | Hour of the day most sessions start at, like the Claude app |
 | Favorite model | Model that generated the most output tokens |
 | Heatmap | Prompts per day over the last `--weeks` weeks |
 | **Tokens** bar | *Written by Claude* = output · *Added to context* = input + cache writes (files read, command results…) · *Re-read from cache* = cache reads — Claude re-reads the whole conversation at every step, which is why this part is by far the largest |
 | **Models** bar | Share of output tokens per model |
 | Book line | Output tokens compared with the length of a well-known book |
 
-Numbers can differ from the Claude app's stats card, which sums the repeated lines.
+The spend banner is always de-duplicated: it estimates what was actually billed.
 
 ### Spend banner
 
 `--cost` adds a banner with the cost of the last 30 days of Claude Code usage, **estimated at Anthropic API list prices**, like Claude Code's own cost display. Each response is priced by model: input, cache writes (1.25× input for the 5-minute cache, 2× for the 1-hour cache), cache reads, output, fast mode (2×) and web searches ($10 per 1,000). Subagents are included.
+
+The banner's look climbs with the amount: **Bronze** (under $100), **Silver** ($100+), **Gold** ($500+, sparkles), **Diamond** ($1,500+) and **Legendary** ($5,000+, flowing rainbow). The glint and sparkles are animated, and stay still for visitors who prefer reduced motion.
 
 On a Pro or Max plan this is the API value of what you used, not what you paid. Responses from models without a known price are left out; `claude-stats` (without `push`) prints how many.
 

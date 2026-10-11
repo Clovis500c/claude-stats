@@ -31,8 +31,8 @@ export const PALETTES = {
 
 export const SECTIONS = ['header', 'tiles', 'heatmap', 'book', 'tokens', 'models', 'tools'];
 
-export const TILES = ['sessions', 'prompts', 'activeDays', 'streak', 'generated', 'toolCalls', 'peakHour', 'favorite', 'responses', 'processed'];
-export const DEFAULT_TILES = TILES.slice(0, 8);
+export const TILES = ['sessions', 'messages', 'prompts', 'activeDays', 'streak', 'generated', 'toolCalls', 'peakHour', 'favorite', 'responses', 'processed'];
+export const DEFAULT_TILES = TILES.filter((k) => k !== 'prompts').slice(0, 8);
 
 const I18N = {
   en: {
@@ -40,7 +40,7 @@ const I18N = {
     title: 'Claude Code usage',
     range: { all: 'All time', '30d': 'Last 30 days', '7d': 'Last 7 days' },
     updated: (d) => `updated ${d}`,
-    sessions: 'Sessions', prompts: 'Prompts', activeDays: 'Active days', streak: 'Longest streak',
+    sessions: 'Sessions', messages: 'Messages', prompts: 'Prompts', activeDays: 'Active days', streak: 'Longest streak',
     generated: 'Tokens generated', toolCalls: 'Tool calls', peakHour: 'Peak hour', favorite: 'Favorite model',
     responses: 'Claude responses', processed: 'Tokens processed',
     days: (n) => `${n} day${n === 1 ? '' : 's'}`,
@@ -51,6 +51,7 @@ const I18N = {
     spent: (days) => `spent in the last ${days} days`, apiPrices: 'at API prices',
     tokGenerated: 'Written by Claude', tokAdded: 'Added to context', tokReread: 'Re-read from cache',
     models: 'Models', byOutput: 'share of generated tokens',
+    tiers: { bronze: 'Bronze', silver: 'Silver', gold: 'Gold', diamond: 'Diamond', legendary: 'Legendary' },
     tools: 'Top tools', other: 'Other',
   },
   fr: {
@@ -58,7 +59,7 @@ const I18N = {
     title: 'Utilisation de Claude Code',
     range: { all: 'Depuis le début', '30d': '30 derniers jours', '7d': '7 derniers jours' },
     updated: (d) => `mis à jour le ${d}`,
-    sessions: 'Sessions', prompts: 'Prompts', activeDays: 'Jours actifs', streak: 'Plus longue série',
+    sessions: 'Sessions', messages: 'Messages', prompts: 'Prompts', activeDays: 'Jours actifs', streak: 'Plus longue série',
     generated: 'Tokens générés', toolCalls: "Appels d'outils", peakHour: 'Heure de pointe', favorite: 'Modèle favori',
     responses: 'Réponses de Claude', processed: 'Tokens traités',
     days: (n) => `${n} jour${n > 1 ? 's' : ''}`,
@@ -69,6 +70,7 @@ const I18N = {
     spent: (days) => `dépensés ces ${days} derniers jours`, apiPrices: 'au tarif API',
     tokGenerated: 'Écrits par Claude', tokAdded: 'Ajoutés au contexte', tokReread: 'Relus depuis le cache',
     models: 'Modèles', byOutput: 'part des tokens générés',
+    tiers: { bronze: 'Bronze', silver: 'Argent', gold: 'Or', diamond: 'Diamant', legendary: 'Légendaire' },
     tools: 'Outils les plus utilisés', other: 'Autres',
   },
 };
@@ -102,26 +104,21 @@ export function parseColor(s) {
   return m ? `#${m[1].toLowerCase()}` : null;
 }
 
-// Same color with its hue turned by `deg` degrees, for the banner gradient.
-function shiftHue(hex, deg) {
-  const n = parseInt(hex.slice(1).replace(/^(.)(.)(.)$/, '$1$1$2$2$3$3'), 16);
-  const [r, g, b] = [n >> 16, (n >> 8) & 255, n & 255].map((v) => v / 255);
-  const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2, d = max - min;
-  const sat = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
-  let h = d === 0 ? 0 : max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
-  h = (h * 60 + deg + 360) % 360;
-  const c = (1 - Math.abs(2 * l - 1)) * sat, x = c * (1 - Math.abs(((h / 60) % 2) - 1)), m = l - c / 2;
-  const [r1, g1, b1] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
-  return `#${[r1, g1, b1].map((v) => Math.round((v + m) * 255).toString(16).padStart(2, '0')).join('')}`;
-}
+// Spend tiers by API value over the window: the more spent, the shinier the banner.
+// stops run left → right; text sits on the left, so the first stop sets the contrast.
+const TIERS = [
+  { min: 0, key: 'bronze', stops: ['#9a5a30', '#ad6a38', '#7a4220'], ink: '#ffffff', shine: 0.2, sparkles: 0 },
+  { min: 100, key: 'silver', stops: ['#c3cad2', '#f4f6f8', '#9aa3ad'], ink: '#1f2328', shine: 0.55, sparkles: 0 },
+  { min: 500, key: 'gold', stops: ['#e9b949', '#f9e08a', '#c9962f'], ink: '#3b2a06', shine: 0.6, sparkles: 3, glow: '#f2c14e' },
+  { min: 1500, key: 'diamond', stops: ['#8fd3f7', '#e6f8ff', '#7f9cff'], ink: '#0b2540', shine: 0.75, sparkles: 5, glow: '#7fd3ff' },
+  // flowing rainbow: first and last stop match so the loop is seamless
+  { min: 5000, key: 'legendary', stops: ['#c2185b', '#6a1b9a', '#1565c0', '#00897b', '#c2185b'], ink: '#ffffff', shine: 0.35, sparkles: 7, glow: '#b06cff', flow: true },
+];
+export const spendTier = (usd) => TIERS.findLast((x) => usd >= x.min);
 
-// Relative luminance (WCAG) of a #rrggbb color, 0 (black) to 1 (white).
-function luminance(hex) {
-  const n = parseInt(hex.slice(1).replace(/^(.)(.)(.)$/, '$1$1$2$2$3$3'), 16);
-  const lin = (v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
-  const [r, g, b] = [n >> 16, (n >> 8) & 255, n & 255].map((v) => lin(v / 255));
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
+// Sparkle spots as fractions of the banner, kept off the text and the tier pill.
+const SPARKS = [[0.62, 0.26, 6.5], [0.7, 0.74, 4.5], [0.55, 0.76, 5], [0.79, 0.17, 5], [0.49, 0.22, 4], [0.9, 0.84, 5], [0.97, 0.2, 4]];
+const star = (x, y, r) => `M${x} ${y - r}Q${x} ${y} ${x + r} ${y}Q${x} ${y} ${x} ${y + r}Q${x} ${y} ${x - r} ${y}Q${x} ${y} ${x} ${y - r}Z`;
 
 // SVG can't measure text; a rough per-character width is enough for layout.
 const textW = (s, size) => String(s).length * size * 0.52;
@@ -200,30 +197,67 @@ export function renderCard(stats, counts, opts = {}) {
     y += 32;
   }
 
-  // ---- Spend banner (opt-in): API value of the usage over the last N days ----
+  // ---- Spend banner (opt-in): API value of the usage over the last N days, styled by tier ----
   if (cost) {
     gapBefore(16);
-    const bh = 54;
-    const end = shiftHue(acc, -45);
-    // white text on dark gradients, near-black on light ones
-    const ink = Math.max(luminance(acc), luminance(end)) > 0.4 ? '#1f1e1d' : '#ffffff';
-    out.push(`<defs><linearGradient id="spend" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${acc}"/><stop offset="1" stop-color="${end}"/></linearGradient></defs>`);
-    rect(pad, y, inner, bh, 'url(#spend)', 10);
-    // soft highlight across the top half
-    out.push(`<rect x="${pad}" y="${y}" width="${inner}" height="${bh / 2}" rx="10" fill="#ffffff" fill-opacity="0.08"/>`);
-    const usd = cost.usd.toLocaleString(t.locale, {
-      style: 'currency', currency: 'USD', maximumFractionDigits: cost.usd >= 1000 ? 0 : 2, minimumFractionDigits: cost.usd >= 1000 ? 0 : 2,
+    const bh = 58;
+    const tier = spendTier(cost.usd);
+    const { ink, stops } = tier;
+    const dark = ink === '#ffffff';
+    const grad = tier.flow
+      // twice as wide and slid left by one width, repeating: an endless flow
+      ? `<linearGradient id="spend" gradientUnits="userSpaceOnUse" x1="${pad}" y1="0" x2="${pad + inner}" y2="0" spreadMethod="repeat">`
+      : '<linearGradient id="spend" x1="0" y1="0" x2="1" y2="1">';
+    out.push(`<defs>${grad}${stops.map((s, i) => `<stop offset="${+(i / (stops.length - 1)).toFixed(3)}" stop-color="${s}"/>`).join('')}</linearGradient>`
+      + `<linearGradient id="spend-shine" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="0.5" stop-color="#fff" stop-opacity="${tier.shine}"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>`
+      + `<clipPath id="spend-clip"><rect x="${pad}" y="${y}" width="${inner}" height="${bh}" rx="10"/></clipPath>`
+      + (tier.glow ? '<filter id="spend-glow" x="-10%" y="-50%" width="120%" height="200%"><feGaussianBlur stdDeviation="7"/></filter>' : '')
+      + '</defs>');
+    out.push(`<style>
+@keyframes cs-shine { 0% { transform: translateX(0) } 55%, 100% { transform: translateX(${W + 240}px) } }
+@keyframes cs-twinkle { 0%, 100% { opacity: 0; transform: scale(.3) rotate(0deg) } 50% { opacity: 1; transform: scale(1) rotate(45deg) } }
+@keyframes cs-flow { to { transform: translateX(-${inner}px) } }
+.cs-shine { animation: cs-shine 4.5s ease-in-out infinite }
+.cs-spark { transform-box: fill-box; transform-origin: center; animation: cs-twinkle 2.6s ease-in-out infinite both }
+.cs-flow { animation: cs-flow 8s linear infinite }
+@media (prefers-reduced-motion: reduce) { .cs-shine, .cs-spark, .cs-flow { animation: none } .cs-shine { display: none } }
+</style>`);
+    if (tier.glow) out.push(`<rect x="${pad + 6}" y="${y + 8}" width="${inner - 12}" height="${bh - 8}" rx="10" fill="${tier.glow}" opacity="0.45" filter="url(#spend-glow)"/>`);
+    out.push('<g clip-path="url(#spend-clip)">');
+    if (tier.flow) out.push(`<g class="cs-flow"><rect x="${pad}" y="${y}" width="${inner * 2}" height="${bh}" fill="url(#spend)"/></g>`);
+    else rect(pad, y, inner, bh, 'url(#spend)');
+    // soft highlight across the top half, then a glint sweeping across
+    out.push(`<rect x="${pad}" y="${y}" width="${inner}" height="${bh / 2}" fill="#ffffff" fill-opacity="0.1"/>`);
+    out.push(`<g class="cs-shine"><rect x="-150" y="${y - 10}" width="90" height="${bh + 20}" fill="url(#spend-shine)" transform="skewX(-20)"/></g>`);
+    SPARKS.slice(0, tier.sparkles).forEach(([fx, fy, r], i) => {
+      out.push(`<path class="cs-spark" style="animation-delay:${(i * 0.37).toFixed(2)}s" d="${star(+(pad + fx * inner).toFixed(1), +(y + fy * bh).toFixed(1), r)}" fill="#ffffff"/>`);
     });
-    text(pad + 16, y + 35, usd, { size: 24, fill: ink, weight: 700 });
-    const lx = pad + 16 + textW(usd, 24) + 12;
-    text(lx, y + 24, t.spent(cost.days), { size: 12, fill: ink, weight: 600 });
-    out.push(`<text x="${+lx.toFixed(1)}" y="${y + 40}" font-size="11" fill="${ink}" fill-opacity="0.8">${esc(t.apiPrices)}</text>`);
+    out.push(`<rect x="${pad + 0.5}" y="${y + 0.5}" width="${inner - 1}" height="${bh - 1}" rx="9.5" fill="none" stroke="#ffffff" stroke-opacity="${dark ? 0.25 : 0.6}"/>`);
+    out.push('</g>');
+
+    const usd = cost.usd.toLocaleString(t.locale, {
+      style: 'currency', currency: 'USD', currencyDisplay: 'narrowSymbol', maximumFractionDigits: cost.usd >= 1000 ? 0 : 2, minimumFractionDigits: cost.usd >= 1000 ? 0 : 2,
+    });
+    // a 1px offset copy gives the amount some depth: dark under light text, light under dark text
+    out.push(`<text x="${pad + 16}" y="${y + 39}" font-size="26" font-weight="800" fill="${dark ? '#000000' : '#ffffff'}" fill-opacity="${dark ? 0.3 : 0.6}">${esc(usd)}</text>`);
+    text(pad + 16, y + 38, usd, { size: 26, fill: ink, weight: 800 });
+    const lx = pad + 16 + textW(usd, 26) * 1.08 + 12; // heavy weight runs wider than textW
+    text(lx, y + 26, t.spent(cost.days), { size: 12, fill: ink, weight: 600 });
+    out.push(`<text x="${+lx.toFixed(1)}" y="${y + 42}" font-size="11" fill="${ink}" fill-opacity="0.8">${esc(t.apiPrices)}</text>`);
+
+    // tier pill on the right
+    const label = t.tiers[tier.key].toUpperCase();
+    const pw = textW(label, 11) * 1.2 + 36, px = pad + inner - 14 - pw, py = y + (bh - 24) / 2;
+    out.push(`<rect x="${+px.toFixed(1)}" y="${py}" width="${+pw.toFixed(1)}" height="24" rx="12" fill="${ink}" fill-opacity="0.12" stroke="${ink}" stroke-opacity="0.3"/>`);
+    out.push(`<path d="${star(+(px + 14).toFixed(1), py + 12, 5.5)}" fill="${ink}"/>`);
+    out.push(`<text x="${+(px + 23).toFixed(1)}" y="${py + 16}" font-size="11" font-weight="700" letter-spacing="1" fill="${ink}">${esc(label)}</text>`);
     y += bh;
   }
 
   // ---- Stat tiles ----
   const tileValue = {
     sessions: () => num(stats.sessions),
+    messages: () => num(stats.messages),
     prompts: () => num(stats.prompts),
     activeDays: () => num(stats.activeDays),
     streak: () => t.days(stats.longestStreak),

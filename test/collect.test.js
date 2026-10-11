@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { loadEvents, aggregate, dailyCounts } from '../src/collect.js';
+import { totalCost } from '../src/pricing.js';
 
 // Writes one transcript file and returns the projects folder holding it.
 function fixture(lines) {
@@ -53,6 +54,30 @@ test('subagent responses are kept for the cost but left out of the stats', () =>
   assert.equal(aggregate(ev).responses, 1);
 });
 
+test('messages and tokens are counted per line, like the Claude app', () => {
+  const dir = fixture([
+    user('u1', 'hello'),
+    user('u2', [{ type: 'tool_result', content: 'ok' }]),
+    assistant('m1', [{ type: 'text', text: 'a' }]),
+    assistant('m1', [{ type: 'tool_use', id: 't1', name: 'Bash' }]),
+    { ...assistant('m2', [{ type: 'text', text: 'b' }]), isSidechain: true },
+  ]);
+  const stats = aggregate(loadEvents(dir));
+  assert.equal(stats.prompts, 1);
+  assert.equal(stats.messages, 4); // subagent line left out
+  assert.equal(stats.tokens.output, 300); // 3 assistant lines, subagent included
+  assert.equal(totalCost(loadEvents(dir), { now: new Date(ts) }).usd > 0, true);
+});
+
+test('peak hour is the hour most sessions start at', () => {
+  const at = (h) => new Date(`2026-03-10T${h}:00:00`);
+  const stats = aggregate({
+    prompts: [], responses: [],
+    messages: [{ ts: at('09'), session: 'a' }, { ts: at('15'), session: 'a' }, { ts: at('15'), session: 'a' }, { ts: at('09'), session: 'b' }],
+  });
+  assert.equal(stats.peakHour, 9);
+});
+
 test('aggregates tokens, models, tools and streaks', () => {
   const day = (d) => new Date(`2026-03-${d}T10:00:00`);
   const stats = aggregate({
@@ -88,5 +113,5 @@ test('dailyCounts groups prompts by local day', () => {
 
 test('missing folder gives empty results', () => {
   const ev = loadEvents(path.join(os.tmpdir(), 'does-not-exist-cuc'));
-  assert.deepEqual(ev, { prompts: [], responses: [], tools: [] });
+  assert.deepEqual(ev, { prompts: [], responses: [], tools: [], messages: [], lines: [] });
 });

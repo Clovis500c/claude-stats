@@ -5,6 +5,9 @@
 //  - resumed/forked sessions copy earlier lines into a new file → count each
 //    line uuid once;
 //  - most "user" lines are tool results or system notices, not prompts.
+// The card's messages and tokens skip that de-duplication on purpose, to match
+// the Claude app's stats: every user/assistant line is a message, and every
+// line's usage is summed (subagent lines included). The cost stays de-duplicated.
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -40,12 +43,16 @@ function promptText(o) {
   return c.find((b) => b.type === 'text')?.text ?? '';
 }
 
-// Returns { prompts: [{ts, session}], responses: [{ts, session, model, usage, speed, webSearches, sidechain}], tools: [{ts, name}] }
+// Returns { prompts: [{ts, session}], responses: [{ts, session, model, usage, speed, webSearches, sidechain}], tools: [{ts, name}],
+//           messages: [{ts, session}], lines: [{ts, model, usage}] }
 // Subagent (sidechain) responses are kept for the cost estimate but left out of the stats.
+// messages and lines are the raw, app-style counts (see top of file).
 export function loadEvents(dir = path.join(claudeDir(), 'projects')) {
   const prompts = new Map(); // uuid → prompt
   const responses = new Map(); // message id → response
   const tools = new Map(); // tool_use block id → call
+  const messages = []; // every main-session user/assistant line
+  const lines = []; // every assistant line's usage, subagents included
   for (const file of listTranscripts(dir)) {
     let text;
     try { text = fs.readFileSync(file, 'utf8'); } catch { continue; }
@@ -56,6 +63,8 @@ export function loadEvents(dir = path.join(claudeDir(), 'projects')) {
       if (!o.timestamp) continue;
       const ts = new Date(o.timestamp);
 
+      if ((o.type === 'user' || o.type === 'assistant') && !o.isSidechain) messages.push({ ts, session: o.sessionId });
+      if (o.type === 'assistant' && o.message?.usage) lines.push({ ts, model: o.message.model, usage: o.message.usage });
       if (o.isSidechain && o.type !== 'assistant') continue; // subagent prompts are not the user's
       if (o.type === 'user' && !o.isMeta && o.uuid && !prompts.has(o.uuid)) {
         const t = promptText(o);
@@ -89,7 +98,7 @@ export function loadEvents(dir = path.join(claudeDir(), 'projects')) {
       }
     }
   }
-  return { prompts: [...prompts.values()], responses: [...responses.values()], tools: [...tools.values()] };
+  return { prompts: [...prompts.values()], responses: [...responses.values()], tools: [...tools.values()], messages, lines };
 }
 
 const RANGES = { all: Infinity, '30d': 30, '7d': 7 };
@@ -109,33 +118,44 @@ function longestStreak(dayKeys) {
 
 const toolName = (n) => (n?.startsWith('mcp__') ? n.split('__').slice(2).join('__') || n : n);
 
-export function aggregate({ prompts, responses, tools = [] }, range = 'all') {
+// messages and lines default to prompts and responses for callers that only have those.
+export function aggregate({ prompts, responses, tools = [], messages = prompts, lines = responses }, range = 'all') {
   const days = RANGES[range] ?? Infinity;
   const since = days === Infinity ? 0 : Date.now() - days * 86400000;
   const P = prompts.filter((e) => e.ts.getTime() >= since);
   const R = responses.filter((e) => !e.sidechain && e.ts.getTime() >= since);
   const T = tools.filter((e) => e.ts.getTime() >= since);
+  const M = messages.filter((e) => e.ts.getTime() >= since);
+  const L = lines.filter((e) => e.ts.getTime() >= since);
 
   const sessions = new Set();
   const activeDays = new Set();
-  const hours = new Array(24).fill(0);
   for (const e of P) {
     sessions.add(e.session);
     activeDays.add(dayKey(e.ts));
-    hours[e.ts.getHours()]++;
   }
+  // Peak hour like the Claude app: the hour most sessions start at.
+  const starts = new Map();
+  for (const e of M) {
+    sessions.add(e.session);
+    if (!(starts.get(e.session) <= e.ts)) starts.set(e.session, e.ts);
+  }
+  const hours = new Array(24).fill(0);
+  for (const d of starts.values()) hours[d.getHours()]++;
 
   const tokens = { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 };
   const models = new Map();
   for (const e of R) {
-    const u = e.usage;
-    tokens.input += u.input_tokens;
-    tokens.output += u.output_tokens;
-    tokens.cacheWrite += u.cache_creation_input_tokens;
-    tokens.cacheRead += u.cache_read_input_tokens;
     sessions.add(e.session);
     activeDays.add(dayKey(e.ts));
-    if (e.model && !e.model.startsWith('<')) models.set(e.model, (models.get(e.model) || 0) + u.output_tokens);
+  }
+  for (const e of L) {
+    const u = e.usage;
+    tokens.input += u.input_tokens || 0;
+    tokens.output += u.output_tokens || 0;
+    tokens.cacheWrite += u.cache_creation_input_tokens || 0;
+    tokens.cacheRead += u.cache_read_input_tokens || 0;
+    if (e.model && !e.model.startsWith('<')) models.set(e.model, (models.get(e.model) || 0) + (u.output_tokens || 0));
   }
 
   const toolCounts = new Map();
@@ -153,11 +173,12 @@ export function aggregate({ prompts, responses, tools = [] }, range = 'all') {
     longestStreak: longestStreak(activeDays),
     sessions: sessions.size,
     prompts: P.length,
+    messages: M.length,
     responses: R.length,
     tokens,
     tokensTotal: tokens.input + tokens.output + tokens.cacheWrite + tokens.cacheRead,
     activeDays: activeDays.size,
-    peakHour: P.length ? hours.indexOf(Math.max(...hours)) : null, // hour with the most prompts
+    peakHour: starts.size ? hours.indexOf(Math.max(...hours)) : null, // hour most sessions start at
     favoriteModel: byModel[0]?.[0] ?? null, // most output
   };
 }
