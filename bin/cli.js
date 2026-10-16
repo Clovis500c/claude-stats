@@ -3,7 +3,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { createInterface } from 'node:readline/promises';
-import { loadEvents, aggregate, dailyCounts } from '../src/collect.js';
+import os from 'node:os';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { loadEvents, aggregate, dailyCounts, claudeDir, readCache, writeCache } from '../src/collect.js';
+import { syncEvents, isStale, machineName, exclusive } from '../src/sync.js';
+import { installHooks, uninstallHooks, hookCommand, onPath, settingsFile } from '../src/hook.js';
 import { renderCard, PALETTES, SECTIONS, TILES, DEFAULT_TILES, parseColor, prettyModel, compact } from '../src/render.js';
 import { getToken, currentUser, putFile } from '../src/github.js';
 import { totalCost, COST_PERIODS } from '../src/pricing.js';
@@ -17,6 +22,10 @@ Usage
   claude-stats push                render and upload to GitHub
   claude-stats schedule --every X  refresh automatically (1h, 6h, 12h, 1d, 7d)
   claude-stats unschedule          stop the automatic refresh
+  claude-stats sync                publish this computer's usage to --sync-dir and show every computer's totals
+                                   (--background: do it detached and silently, for hooks)
+  claude-stats hook install        save to --sync-dir after every Claude Code response (Stop and SessionEnd hooks)
+  claude-stats hook uninstall      remove those hooks
 
 Options
   --repo <owner/name>      target repo (default: <you>/<you>, your profile repo)
@@ -24,6 +33,9 @@ Options
   --lang en|fr             card language (default: en)
   --range all|30d|7d       period for the numbers (default: all)
   --name <user>            name shown on the card (default: repo owner)
+  --sync-dir <path>        add up several computers: a folder you sync between them (OneDrive, Syncthing…)
+                           also read from $CLAUDE_STATS_SYNC_DIR
+  --machine <name>         this computer's name in --sync-dir (default: hostname)
 
 Look
   --title <text>           card title (default: "Claude Code usage")
@@ -57,6 +69,9 @@ const { positionals, values: opt } = parseArgs({
     dir: { type: 'string', default: 'claude-stats' },
     branch: { type: 'string' },
     every: { type: 'string' },
+    'sync-dir': { type: 'string' },
+    machine: { type: 'string' },
+    background: { type: 'boolean', default: false },
     'hide-tools': { type: 'boolean', default: false },
     title: { type: 'string' },
     palette: { type: 'string', default: 'blue' },
@@ -71,6 +86,27 @@ const { positionals, values: opt } = parseArgs({
     version: { type: 'boolean', short: 'v' },
   },
 });
+
+// Absolute, because the scheduled job runs from another working directory.
+const syncDir = opt['sync-dir'] || process.env.CLAUDE_STATS_SYNC_DIR;
+opt['sync-dir'] = syncDir ? path.resolve(syncDir) : undefined;
+opt.machine = machineName(opt.machine);
+// Bookkeeping files live next to the other state file, on this computer only.
+const home = (name) => path.join(os.homedir(), name);
+const CACHE = home('.claude-stats-cache.json.gz'); // parsed transcripts: only changed files are read again
+const LOCK = home('.claude-stats-sync.lock');
+const LOG = home('.claude-stats-sync.log');
+const syncOpts = () => ({ dir: opt['sync-dir'], machine: opt.machine, peersDir: home('.claude-stats-peers') });
+
+// This computer's events; unchanged transcripts come from the cache, so a re-run takes a fraction of a second.
+function localEvents() {
+  const dir = path.join(claudeDir(), 'projects');
+  const cache = readCache(CACHE, dir);
+  const stats = {};
+  const events = loadEvents(dir, cache, stats);
+  if (stats.changed) try { writeCache(CACHE, dir, cache); } catch { /* only an optimization */ }
+  return events;
+}
 
 const list = (s) => (s ? s.split(',').map((x) => x.trim()).filter(Boolean) : []);
 
@@ -98,10 +134,20 @@ function lookOptions() {
   return { title: opt.title, palette: opt.palette, accent: opt.accent, weeks, hide, tiles, transparent: opt.transparent };
 }
 
+// One line per computer when several are added up.
+const machinesRecap = ({ machines, skipped, error }) =>
+  machines.map((m) => `  ${m.machine}${m.self ? ' (this PC)' : ''}${m.cached ? ' (last known copy)' : ''}: ${m.sessions.toLocaleString('en-US')} sessions, ${m.messages.toLocaleString('en-US')} messages, ${m.prompts.toLocaleString('en-US')} prompts`)
+    .concat(skipped.map((m) => `  ${m}: snapshot not readable yet (still syncing?), ignored this time`))
+    .concat(error ? [`  ! could not save this PC's snapshot: ${error}`] : [])
+    .join('\n');
+
 function build() {
   const look = lookOptions();
-  const events = loadEvents();
+  const local = localEvents();
+  const synced = opt['sync-dir'] ? syncEvents(local, syncOpts()) : null;
+  const events = synced ? synced.events : local;
   if (!events.prompts.length && !events.responses.length) throw new Error('No Claude Code transcripts found in ~/.claude/projects.');
+  if (synced) console.log(`Added up ${synced.machines.length} computer(s) from ${opt['sync-dir']}:\n${machinesRecap(synced)}`);
   const stats = aggregate(events, opt.range);
   const counts = dailyCounts(events);
   const cost = totalCost(events, { period: opt['cost-period'] });
@@ -134,7 +180,11 @@ async function resolveRepo(token) {
 
 async function push() {
   // Scheduled runs pass --every; bail out before any work if it's not time yet.
-  if (opt.repo && opt.every && !isDue(opt.repo, opt.every)) return console.log('Not due yet, skipping.');
+  if (opt.repo && opt.every && !isDue(opt.repo, opt.every)) {
+    // The card isn't due, but the other computers read this one's snapshot: keep it fresh.
+    if (opt['sync-dir'] && isStale(opt['sync-dir'], opt.machine, path.join(claudeDir(), 'projects'))) syncEvents(localEvents(), syncOpts());
+    return console.log('Not due yet, skipping.');
+  }
   const token = getToken();
   const repo = await resolveRepo(token);
   const { files } = build();
@@ -151,7 +201,7 @@ async function push() {
 const jobArgs = () => {
   const a = ['push', '--repo', opt.repo, '--theme', opt.theme, '--lang', opt.lang, '--range', opt.range, '--dir', opt.dir, '--name', opt.name];
   // Forward every option the user set, so the scheduled card looks the same.
-  for (const k of ['branch', 'title', 'palette', 'accent', 'weeks', 'tiles', 'hide', 'cost-period']) if (opt[k] != null) a.push(`--${k}`, String(opt[k]));
+  for (const k of ['branch', 'title', 'palette', 'accent', 'weeks', 'tiles', 'hide', 'cost-period', 'sync-dir', 'machine']) if (opt[k] != null) a.push(`--${k}`, String(opt[k]));
   for (const k of ['hide-tools', 'transparent', 'cost']) if (opt[k]) a.push(`--${k}`);
   return a;
 };
@@ -172,6 +222,9 @@ async function setup() {
   const ask = async (q, d) => (await rl.question(`${q} (${d}) `)).trim() || d;
 
   opt.repo = await ask('Repo to publish to?', opt.repo || `${login}/${login}`);
+  const sync = await ask('Add up several computers? Folder synced between them (OneDrive, Syncthing…), or none', opt['sync-dir'] || 'none');
+  opt['sync-dir'] = sync === 'none' ? undefined : path.resolve(sync);
+  const wantHook = opt['sync-dir'] && (await ask('Save to that folder after every Claude Code response, so a PC switched off is never behind? y/n', 'y')).toLowerCase().startsWith('y');
   opt.lang = await ask('Language en/fr?', opt.lang);
   opt.theme = await ask('Theme dark/light/auto?', opt.theme);
   if ((await ask('Customize colors and sections? y/n', 'n')).toLowerCase().startsWith('y')) {
@@ -207,7 +260,30 @@ async function setup() {
     console.log(`✔ Scheduled: ${schedule(jobArgs(), every)}`);
     console.log('  If the computer is off at that time, it updates within an hour of being back on.');
   }
+  if (wantHook) installSyncHooks();
   console.log(`\nAdd this to your README.md:\n\n${snippet(opt.repo, opt.dir, opt.branch)}\n`);
+}
+
+// Publishes this computer's snapshot now and shows every computer's totals.
+function syncNow() {
+  let synced;
+  const ran = exclusive(LOCK, () => { synced = syncEvents(localEvents(), syncOpts()); });
+  if (!ran) return console.log('Another sync is running; it will run once more when it ends.');
+  if (process.env.CLAUDE_STATS_BACKGROUND) {
+    // The log only exists while the last detached run failed.
+    if (synced.error) fs.writeFileSync(LOG, `${new Date().toISOString()} ${synced.error}\n`);
+    else fs.rmSync(LOG, { force: true });
+  }
+  console.log(`${synced.error ? '✖ Snapshot NOT written' : '✔ Snapshot written'} (${opt.machine} → ${opt['sync-dir']})\n${machinesRecap(synced)}`);
+  if (synced.error) process.exitCode = 1;
+}
+
+function installSyncHooks() {
+  if (!opt['sync-dir']) throw new Error('--sync-dir is required (or set CLAUDE_STATS_SYNC_DIR)');
+  if (!onPath()) throw new Error('The hooks run "claude-stats": install it globally first (see Quick start), then retry.');
+  installHooks(hookCommand({ dir: opt['sync-dir'], machine: opt.machine }));
+  console.log(`✔ Hooks installed in ${settingsFile()}: ${opt.machine} is saved to ${opt['sync-dir']} after every Claude Code response.`);
+  syncNow();
 }
 
 // Short human-readable recap printed after a local render.
@@ -247,6 +323,23 @@ async function main() {
       break;
     }
     case 'push': await push(); break;
+    case 'sync': {
+      if (!opt['sync-dir']) throw new Error('--sync-dir is required (or set CLAUDE_STATS_SYNC_DIR)');
+      if (!opt.background) return syncNow();
+      // A hook must return at once and must not die with Claude Code: run detached.
+      const args = process.argv.slice(2).filter((a) => a !== '--background');
+      spawn(process.execPath, [fileURLToPath(import.meta.url), ...args], {
+        detached: true, stdio: 'ignore', windowsHide: true, env: { ...process.env, CLAUDE_STATS_BACKGROUND: '1' },
+      }).unref();
+      break;
+    }
+    case 'hook': {
+      if (positionals[1] === 'install') return installSyncHooks();
+      if (positionals[1] !== 'uninstall') throw new Error('Usage: claude-stats hook install|uninstall');
+      const n = uninstallHooks();
+      console.log(n ? `✔ Removed ${n} hook(s) from ${settingsFile()}` : 'No claude-stats hook found');
+      break;
+    }
     case 'setup': await setup(); break;
     case 'schedule': {
       if (!opt.every) throw new Error(`--every is required: ${Object.keys(FREQUENCIES).join(', ')}`);
@@ -259,4 +352,9 @@ async function main() {
   }
 }
 
-main().catch((e) => { console.error(`✖ ${e.message}`); process.exitCode = 1; });
+main().catch((e) => {
+  // A detached run has no terminal: keep the reason where `sync` can be debugged.
+  if (process.env.CLAUDE_STATS_BACKGROUND) try { fs.writeFileSync(LOG, `${new Date().toISOString()} ${e.message}\n`); } catch { /* nowhere to report */ }
+  else console.error(`✖ ${e.message}`);
+  process.exitCode = 1;
+});

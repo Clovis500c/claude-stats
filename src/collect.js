@@ -11,12 +11,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import zlib from 'node:zlib';
 
 export function claudeDir() {
   return process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
 }
 
-function listTranscripts(dir) {
+export function listTranscripts(dir) {
   const out = [];
   if (!fs.existsSync(dir)) return out;
   const walk = (d) => {
@@ -43,62 +44,142 @@ function promptText(o) {
   return c.find((b) => b.type === 'text')?.text ?? '';
 }
 
-// Returns { prompts: [{ts, session}], responses: [{ts, session, model, usage, speed, webSearches, sidechain}], tools: [{ts, name}],
-//           messages: [{ts, session}], lines: [{ts, model, usage}] }
-// Subagent (sidechain) responses are kept for the cost estimate but left out of the stats.
-// messages and lines are the raw, app-style counts (see top of file).
-export function loadEvents(dir = path.join(claudeDir(), 'projects')) {
+// The four token counts the card reads, nothing else.
+export const slimUsage = (u) => ({
+  input_tokens: u.input_tokens || 0,
+  output_tokens: u.output_tokens || 0,
+  cache_creation_input_tokens: u.cache_creation_input_tokens || 0,
+  cache_read_input_tokens: u.cache_read_input_tokens || 0,
+});
+
+// One file → compact records (timestamps in ms, no text). Kept per file so an
+// unchanged transcript is never read again: see loadEvents' cache.
+//   m message · l usage line · p prompt · r response line · t tool call
+function parseTranscript(text) {
+  const recs = [];
+  for (const line of text.split('\n')) {
+    if (!line) continue;
+    let o;
+    try { o = JSON.parse(line); } catch { continue; }
+    if (!o.timestamp) continue;
+    const ts = Date.parse(o.timestamp);
+    if (Number.isNaN(ts)) continue;
+
+    if ((o.type === 'user' || o.type === 'assistant') && !o.isSidechain) recs.push({ k: 'm', ts, s: o.sessionId });
+    if (o.type === 'assistant' && o.message?.usage) recs.push({ k: 'l', ts, model: o.message.model, usage: slimUsage(o.message.usage) });
+    if (o.isSidechain && o.type !== 'assistant') continue; // subagent prompts are not the user's
+    if (o.type === 'user' && !o.isMeta && o.uuid) {
+      const t = promptText(o);
+      if (t != null && !SYNTHETIC.test(t.trimStart())) recs.push({ k: 'p', id: o.uuid, ts, s: o.sessionId });
+    } else if (o.type === 'assistant' && o.message?.id && o.message.usage) {
+      for (const b of (o.isSidechain ? null : o.message.content) || []) {
+        if (b.type === 'tool_use' && b.id) recs.push({ k: 't', id: b.id, ts, name: b.name });
+      }
+      const u = o.message.usage;
+      recs.push({
+        k: 'r', id: o.message.id, ts, s: o.sessionId, model: o.message.model, sc: !!o.isSidechain,
+        speed: u.speed, ws: u.server_tool_use?.web_search_requests,
+        u: {
+          input_tokens: u.input_tokens,
+          output_tokens: u.output_tokens,
+          cache_creation_input_tokens: u.cache_creation_input_tokens,
+          cache_read_input_tokens: u.cache_read_input_tokens,
+          w5: u.cache_creation?.ephemeral_5m_input_tokens,
+          w1: u.cache_creation?.ephemeral_1h_input_tokens,
+        },
+      });
+    }
+  }
+  return recs;
+}
+
+// Records of every file, in file order → the de-duplicated events.
+function assemble(recs) {
   const prompts = new Map(); // uuid → prompt
   const responses = new Map(); // message id → response
   const tools = new Map(); // tool_use block id → call
   const messages = []; // every main-session user/assistant line
   const lines = []; // every assistant line's usage, subagents included
-  for (const file of listTranscripts(dir)) {
-    let text;
-    try { text = fs.readFileSync(file, 'utf8'); } catch { continue; }
-    for (const line of text.split('\n')) {
-      if (!line) continue;
-      let o;
-      try { o = JSON.parse(line); } catch { continue; }
-      if (!o.timestamp) continue;
-      const ts = new Date(o.timestamp);
-
-      if ((o.type === 'user' || o.type === 'assistant') && !o.isSidechain) messages.push({ ts, session: o.sessionId });
-      if (o.type === 'assistant' && o.message?.usage) lines.push({ ts, model: o.message.model, usage: o.message.usage });
-      if (o.isSidechain && o.type !== 'assistant') continue; // subagent prompts are not the user's
-      if (o.type === 'user' && !o.isMeta && o.uuid && !prompts.has(o.uuid)) {
-        const t = promptText(o);
-        if (t != null && !SYNTHETIC.test(t.trimStart())) prompts.set(o.uuid, { ts, session: o.sessionId });
-      } else if (o.type === 'assistant' && o.message?.id && o.message.usage) {
-        for (const b of (o.isSidechain ? null : o.message.content) || []) {
-          if (b.type === 'tool_use' && b.id && !tools.has(b.id)) tools.set(b.id, { ts, name: b.name });
-        }
-        const u = o.message.usage;
-        const prev = responses.get(o.message.id);
-        // Streaming lines can carry partial counts; keep the largest of each.
-        const max = (a, b) => (a == null && b == null ? undefined : Math.max(a || 0, b || 0));
-        const pick = (k) => max(prev?.usage[k], u[k]) || 0;
-        responses.set(o.message.id, {
-          ts: prev?.ts ?? ts,
-          session: o.sessionId,
-          model: o.message.model,
-          sidechain: !!o.isSidechain,
-          speed: u.speed ?? prev?.speed,
-          webSearches: max(prev?.webSearches, u.server_tool_use?.web_search_requests) || 0,
-          usage: {
-            input_tokens: pick('input_tokens'),
-            output_tokens: pick('output_tokens'),
-            cache_creation_input_tokens: pick('cache_creation_input_tokens'),
-            cache_read_input_tokens: pick('cache_read_input_tokens'),
-            // split of the cache writes by lifetime, when the transcript has it
-            cache_write_5m: max(prev?.usage.cache_write_5m, u.cache_creation?.ephemeral_5m_input_tokens),
-            cache_write_1h: max(prev?.usage.cache_write_1h, u.cache_creation?.ephemeral_1h_input_tokens),
-          },
-        });
-      }
+  for (const r of recs) {
+    if (r.k === 'm') messages.push({ ts: new Date(r.ts), session: r.s });
+    else if (r.k === 'l') lines.push({ ts: new Date(r.ts), model: r.model, usage: r.usage });
+    else if (r.k === 'p') {
+      if (!prompts.has(r.id)) prompts.set(r.id, { id: r.id, ts: new Date(r.ts), session: r.s });
+    } else if (r.k === 't') {
+      if (!tools.has(r.id)) tools.set(r.id, { id: r.id, ts: new Date(r.ts), name: r.name });
+    } else if (r.k === 'r') {
+      const prev = responses.get(r.id);
+      // Streaming lines can carry partial counts; keep the largest of each.
+      const max = (a, b) => (a == null && b == null ? undefined : Math.max(a || 0, b || 0));
+      const pick = (k) => max(prev?.usage[k], r.u[k]) || 0;
+      responses.set(r.id, {
+        id: r.id,
+        ts: prev?.ts ?? new Date(r.ts),
+        session: r.s,
+        model: r.model,
+        sidechain: r.sc,
+        speed: r.speed ?? prev?.speed,
+        webSearches: max(prev?.webSearches, r.ws) || 0,
+        usage: {
+          input_tokens: pick('input_tokens'),
+          output_tokens: pick('output_tokens'),
+          cache_creation_input_tokens: pick('cache_creation_input_tokens'),
+          cache_read_input_tokens: pick('cache_read_input_tokens'),
+          // split of the cache writes by lifetime, when the transcript has it
+          cache_write_5m: max(prev?.usage.cache_write_5m, r.u.w5),
+          cache_write_1h: max(prev?.usage.cache_write_1h, r.u.w1),
+        },
+      });
     }
   }
   return { prompts: [...prompts.values()], responses: [...responses.values()], tools: [...tools.values()], messages, lines };
+}
+
+// Returns { prompts: [{id, ts, session}], responses: [{id, ts, session, model, usage, speed, webSearches, sidechain}], tools: [{id, ts, name}],
+//           messages: [{ts, session}], lines: [{ts, model, usage}] }
+// The ids (line uuid, response id, tool_use id) let several computers' events be merged without double counting.
+// Subagent (sidechain) responses are kept for the cost estimate but left out of the stats.
+// messages and lines are the raw, app-style counts (see top of file).
+// `cache` ({ [file]: { mtimeMs, size, recs } }) is filled in as files are read and
+// updated in place: a file whose mtime and size are unchanged is not parsed again.
+// `stats.changed` counts the files parsed or dropped, so callers know when to save the cache.
+export function loadEvents(dir = path.join(claudeDir(), 'projects'), cache = {}, stats = {}) {
+  stats.changed = 0;
+  const seen = new Set();
+  const recs = [];
+  for (const file of listTranscripts(dir)) {
+    let st;
+    try { st = fs.statSync(file); } catch { continue; }
+    let hit = cache[file];
+    if (!hit || hit.mtimeMs !== st.mtimeMs || hit.size !== st.size) {
+      let text;
+      try { text = fs.readFileSync(file, 'utf8'); } catch { continue; }
+      hit = cache[file] = { mtimeMs: st.mtimeMs, size: st.size, recs: parseTranscript(text) };
+      stats.changed++;
+    }
+    seen.add(file);
+    for (const r of hit.recs) recs.push(r);
+  }
+  for (const file of Object.keys(cache)) {
+    if (seen.has(file)) continue;
+    delete cache[file];
+    stats.changed++;
+  }
+  return assemble(recs);
+}
+
+// The parse cache lives on this computer only (never in the synced folder).
+export function readCache(file, dir) {
+  try {
+    const data = JSON.parse(zlib.gunzipSync(fs.readFileSync(file)));
+    return data.version === 1 && data.dir === dir ? data.files : {};
+  } catch { return {}; }
+}
+
+export function writeCache(file, dir, files) {
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, zlib.gzipSync(JSON.stringify({ version: 1, dir, files })));
+  fs.renameSync(tmp, file);
 }
 
 const RANGES = { all: Infinity, '30d': 30, '7d': 7 };

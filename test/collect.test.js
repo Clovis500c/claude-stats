@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { loadEvents, aggregate, dailyCounts } from '../src/collect.js';
+import { loadEvents, aggregate, dailyCounts, readCache, writeCache } from '../src/collect.js';
 import { totalCost } from '../src/pricing.js';
 
 // Writes one transcript file and returns the projects folder holding it.
@@ -114,4 +114,47 @@ test('dailyCounts groups prompts by local day', () => {
 test('missing folder gives empty results', () => {
   const ev = loadEvents(path.join(os.tmpdir(), 'does-not-exist-cuc'));
   assert.deepEqual(ev, { prompts: [], responses: [], tools: [], messages: [], lines: [] });
+});
+
+test('a cache skips unchanged files and picks up changed and removed ones', () => {
+  const dir = fixture([user('u1', 'hello'), assistant('m1', [{ type: 'text', text: 'a' }])]);
+  const cache = {};
+  const stats = {};
+  const first = loadEvents(dir, cache, stats);
+  assert.equal(stats.changed, 1);
+  assert.deepEqual(loadEvents(dir, cache, stats), first);
+  assert.equal(stats.changed, 0); // nothing re-read
+
+  const file = path.join(dir, 'proj', 's.jsonl');
+  fs.appendFileSync(file, '\n' + JSON.stringify(user('u2', 'again')));
+  assert.equal(loadEvents(dir, cache, stats).prompts.length, 2);
+  assert.equal(stats.changed, 1);
+
+  fs.rmSync(file);
+  assert.equal(loadEvents(dir, cache, stats).prompts.length, 0);
+  assert.equal(stats.changed, 1); // dropped
+  assert.deepEqual(cache, {});
+});
+
+test('the cache gives exactly the same events as reading everything', () => {
+  const dir = fixture([
+    user('u1', 'hello'),
+    assistant('m1', [{ type: 'text', text: 'a' }], { ...usage, output_tokens: 1 }),
+    assistant('m1', [{ type: 'tool_use', id: 't1', name: 'Bash' }]),
+    { ...assistant('m2', [{ type: 'text', text: 'b' }]), isSidechain: true },
+  ]);
+  const cache = {};
+  loadEvents(dir, cache);
+  assert.deepEqual(loadEvents(dir, cache), loadEvents(dir));
+});
+
+test('the cache file round-trips and is ignored for another folder', () => {
+  const dir = fixture([user('u1', 'hello')]);
+  const cache = {};
+  loadEvents(dir, cache);
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cuc-')), 'cache.gz');
+  writeCache(file, dir, cache);
+  assert.deepEqual(readCache(file, dir), cache);
+  assert.deepEqual(readCache(file, 'elsewhere'), {});
+  assert.deepEqual(readCache(path.join(os.tmpdir(), 'no-such-cache.gz'), dir), {});
 });

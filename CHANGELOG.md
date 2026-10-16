@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `--sync-dir <path>` (or `CLAUDE_STATS_SYNC_DIR`) adds up the usage of several computers, fully offline: each one writes a snapshot into a folder you sync between them (OneDrive, Syncthing…) and the card is rendered from the sum. Also asked by `setup`, remembered by the automatic refresh, with `--machine <name>` to name a computer and a `sync` command to check the totals per computer.
+- `hook install` / `hook uninstall`: Claude Code `Stop` and `SessionEnd` hooks save this computer's snapshot after every response (detached, never slows Claude down), so a computer switched off is never more than a few seconds behind. `sync --background` is the command they run.
+- The last good snapshot of each other computer is kept locally (`~/.claude-stats-peers`) and used when the shared folder or a file is unreachable for a while.
+
+### Changed
+- Transcripts are parsed once and cached (`~/.claude-stats-cache.json.gz`): only files that changed are read again, so a re-run takes about a second instead of reading the whole history. The numbers are unchanged.
+
 ## [0.9.0] - 2026-10-11
 
 ### Added
