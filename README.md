@@ -24,6 +24,7 @@ Sessions, prompts, tokens, models, top tools and an activity heatmap — compute
 - [Quick start](#quick-start)
 - [Commands](#commands)
 - [Customization](#customization)
+- [Several computers](#several-computers)
 - [How it works](#how-it-works)
 - [Privacy](#privacy)
 - [How the numbers are computed](#how-the-numbers-are-computed)
@@ -92,6 +93,8 @@ The setup will:
 | `claude-stats push` | Render and upload; only commits when the card changed |
 | `claude-stats schedule --every <freq>` | Set the refresh frequency: `1h`, `6h`, `12h`, `1d`, `7d` |
 | `claude-stats unschedule` | Stop the automatic refresh |
+| `claude-stats sync --sync-dir <path>` | Publish this computer's usage to the shared folder and show every computer's totals (see [Several computers](#several-computers)) |
+| `claude-stats hook install --sync-dir <path>` | Save to the shared folder after every Claude Code response (`hook uninstall` removes it) |
 | `claude-stats --help` | Show every option |
 | `claude-stats --version` | Show the installed version |
 
@@ -139,6 +142,30 @@ Available tiles: `sessions`, `messages`, `prompts`, `activeDays`, `streak`, `gen
 
 With `--theme auto`, two files are published (`claude-stats.svg` and `claude-stats-light.svg`) and `setup` prints a `<picture>` snippet so GitHub shows the one matching each visitor's theme.
 
+## Several computers
+
+Your history only exists on the computer it was written on, so with two PCs each one would draw a card from its own half and the last one to upload would win. To add them up, give every computer the same folder, one you already sync between them (OneDrive, Dropbox, Syncthing, a NAS, even a USB key):
+
+```bash
+claude-stats setup --sync-dir "C:UsersyouOneDriveclaude-stats"   # on each computer
+```
+
+`setup` also asks for it, and offers to install the hooks below. Each computer writes a small snapshot of itself (`<hostname>.claude-stats.json.gz`, a couple of MB) into the folder, reads the snapshots of the others, and renders the card from the sum.
+
+### Saved after every response, so a PC switched off is never behind
+
+`claude-stats hook install --sync-dir <path>` adds a `Stop` and a `SessionEnd` hook to Claude Code's `settings.json` (backed up once as `settings.json.bak-claude-stats`; your other hooks are left alone; `claude-stats hook uninstall` removes only these). After every Claude Code response, the hook starts a detached `claude-stats sync --background` and returns at once, so it never slows Claude down. Only the transcripts that changed are read again (the rest comes from a local cache), so a save takes about a second once the cache is warm (about 15 s the very first time). The hook runs the installed `claude-stats`: install it globally first, and update it when a new version comes out.
+
+- **The other PC can be off.** Its last snapshot stays in the folder, so this computer still counts it; and the other PC saved right after its last response, so it can't be more than a few seconds behind.
+- **Fully offline**: nothing goes through a server; the folder is the only link.
+- **No conflicts**: a computer only ever writes its own file.
+- **Same card everywhere**: once the snapshots have synced, every computer computes the same totals, so it doesn't matter which one uploads.
+- **If the folder is unreachable** (offline OneDrive placeholder, unplugged drive, file still downloading), the last good copy of each other computer, kept in `~/.claude-stats-peers`, is used instead of dropping it from the card. With OneDrive, mark the folder "Always keep on this device". A computer you delete from the folder is forgotten.
+- **Check it**: `claude-stats sync --sync-dir <path>` lists the sessions, messages and prompts of each computer. If a background save fails, the reason is in `~/.claude-stats-sync.log` (the file only exists while the last one failed).
+- **Manual runs**: pass `--sync-dir` again, or set `CLAUDE_STATS_SYNC_DIR` once, otherwise a manual `push` would upload a single-computer card.
+- Two computers with the same hostname would overwrite each other: give one a different `--machine <name>`.
+- Sessions, prompts and tool calls are de-duplicated across computers by their ids; the app-style messages and tokens are simply added up, which is right as long as the computers don't hold copies of the same transcripts.
+
 ## How it works
 
 ```
@@ -156,6 +183,8 @@ A job (Task Scheduler on Windows, cron on macOS and Linux) wakes up every hour a
 ## Privacy
 
 Only aggregated numbers end up in the SVG: counts, token totals, per-day prompt counts, model names and the names of your most-used tools. **No prompts, code, file names or project names ever leave your machine.** Use `--hide tools` to leave tool names off the card. The spend banner is off by default, since it shows an amount of money on your public profile.
+
+With `--sync-dir`, the snapshot written to that folder holds the same kind of data plus timestamps, session ids and per-response token counts, never any prompt, code or file name. It stays in your folder and is only as private as the sync tool you chose.
 
 The GitHub token is read from `gh` or `GITHUB_TOKEN` at run time and is never stored by this tool. The only file it writes outside the output folder is `~/.claude-usage-chart.json`, which records the time of the last upload per repository.
 
@@ -253,6 +282,8 @@ npm run preview          # render your own card to preview/claude-stats.svg
 | `src/pricing.js` | API prices per model, for the spend banner |
 | `src/github.js` | Uploads through the GitHub contents API |
 | `src/schedule.js` | Automatic refresh (Task Scheduler / cron) |
+| `src/sync.js` | Snapshots and merge for several computers |
+| `src/hook.js` | Installs the Claude Code hooks that save after every response |
 | `test/` | Unit tests |
 
 ### Releasing
