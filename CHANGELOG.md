@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-17
+
 ### Added
 - `--sync-dir <path>` (or `CLAUDE_STATS_SYNC_DIR`) adds up the usage of several computers, fully offline: each one writes a snapshot into a folder you sync between them (OneDrive, Syncthing…) and the card is rendered from the sum. Also asked by `setup`, remembered by the automatic refresh, with `--machine <name>` to name a computer and a `sync` command to check the totals per computer.
 - `hook install` / `hook uninstall`: Claude Code `Stop` and `SessionEnd` hooks save this computer's snapshot after every response (detached, never slows Claude down), so a computer switched off is never more than a few seconds behind. `sync --background` is the command they run.
@@ -73,7 +75,8 @@ All notable changes to this project are documented here. The format follows
 - Configurable refresh frequency; de-duplicated, honest stats.
 - English and French cards, light/dark/auto themes, guided `setup`.
 
-[Unreleased]: https://github.com/Clovis500c/claude-stats/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/Clovis500c/claude-stats/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/Clovis500c/claude-stats/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/Clovis500c/claude-stats/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/Clovis500c/claude-stats/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Clovis500c/claude-stats/compare/v0.6.1...v0.7.0
