@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-10-23
+
 ### Changed
 - The spend banner's tier now follows the amount shown for the chosen window (`--cost-period`), not the average per 30 days.
 - Every merge to `main` with entries under `[Unreleased]` in the changelog now publishes a release automatically: minor version if something was Added, patch otherwise.
@@ -79,7 +81,8 @@ All notable changes to this project are documented here. The format follows
 - Configurable refresh frequency; de-duplicated, honest stats.
 - English and French cards, light/dark/auto themes, guided `setup`.
 
-[Unreleased]: https://github.com/Clovis500c/claude-stats/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/Clovis500c/claude-stats/compare/v0.10.1...HEAD
+[0.10.1]: https://github.com/Clovis500c/claude-stats/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/Clovis500c/claude-stats/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/Clovis500c/claude-stats/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/Clovis500c/claude-stats/compare/v0.7.0...v0.8.0
