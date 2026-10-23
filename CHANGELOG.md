@@ -8,6 +8,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 - The spend banner's tier now follows the amount shown for the chosen window (`--cost-period`), not the average per 30 days.
+- Every merge to `main` with entries under `[Unreleased]` in the changelog now publishes a release automatically: minor version if something was Added, patch otherwise.
 
 ## [0.10.0] - 2026-10-17
 

@@ -3,13 +3,19 @@ name: Release
 # Publishes a GitHub release with the installable claude-stats.tgz, plus a copy
 # under the project's former name (claude-usage-chart.tgz) so older installs
 # and scheduled jobs that download that file keep working.
-# Either push a tag like v0.6.0 (matching package.json), or run this workflow
-# from the Actions tab: it then tags the current commit with the
+# Every merge to main with entries under [Unreleased] in CHANGELOG.md releases
+# automatically: .github/bump.mjs bumps the version (minor if something was
+# Added, patch otherwise), the bump is committed to main, then released.
+# You can also push a tag like v0.6.0 (matching package.json), or run this
+# workflow from the Actions tab: it then tags the current commit with the
 # package.json version.
 on:
   push:
+    branches: [main]
     tags: ['v*']
   workflow_dispatch:
+
+concurrency: release
 
 permissions:
   contents: write
@@ -22,8 +28,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Bump the version from the changelog
+        id: bump
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          version=$(node .github/bump.mjs)
+          if [ -z "$version" ]; then echo "Nothing under [Unreleased], no release."; echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore: release $version"
+          git push origin HEAD:main
       - name: Resolve the tag
         id: tag
+        if: steps.bump.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -38,14 +55,17 @@ jobs:
           fi
           echo "name=$tag" >> "$GITHUB_OUTPUT"
       - run: npm test
+        if: steps.bump.outputs.skip != 'true'
       - name: Pack
+        if: steps.bump.outputs.skip != 'true'
         run: |
           mv "$(npm pack --silent)" claude-stats.tgz
           cp claude-stats.tgz claude-usage-chart.tgz
       - name: Publish release
+        if: steps.bump.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.tag.outputs.name }}
         run: |
           notes=$(awk -v v="${TAG#v}" '$0 ~ "^## \\[?"v"\\]?" {f=1; next} /^## / {f=0} f' CHANGELOG.md)
-          gh release create "$TAG" claude-stats.tgz claude-usage-chart.tgz --target "$GITHUB_SHA" --title "$TAG" --notes "${notes:-See CHANGELOG.md}"
+          gh release create "$TAG" claude-stats.tgz claude-usage-chart.tgz --target "$(git rev-parse HEAD)" --title "$TAG" --notes "${notes:-See CHANGELOG.md}"
