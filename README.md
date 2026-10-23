@@ -288,9 +288,7 @@ npm run preview          # render your own card to preview/claude-stats.svg
 
 ### Releasing
 
-1. Bump `version` in `package.json` and move the *Unreleased* notes in [`CHANGELOG.md`](CHANGELOG.md) under the new version.
-2. Tag and push (`git tag v0.6.0 && git push origin v0.6.0`), or run the **Release** workflow from the Actions tab, which tags the current commit for you.
-3. The [release workflow](.github/workflows/release.yml) runs the tests, packs `claude-stats.tgz` and publishes the GitHub release.
+Releases are automatic: write your changes under *Unreleased* in [`CHANGELOG.md`](CHANGELOG.md) and merge to `main`. The [release workflow](.github/workflows/release.yml) bumps the version (minor if something was *Added*, patch otherwise), commits it, runs the tests, packs `claude-stats.tgz` and publishes the GitHub release. A merge with nothing under *Unreleased* releases nothing.
 
 ## Credits
 
