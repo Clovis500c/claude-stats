@@ -47,9 +47,9 @@ test('the spend banner only appears when asked for', () => {
   assert.ok(svg.includes('not the amount paid'));
   assert.ok(svg.includes('GOLD'));
   assert.ok(renderCard(stats, counts, { now, lang: 'fr', cost: { usd: 9000, period: '30d', days: 30 } }).includes('LÉGENDAIRE'));
-  // $6,100 over 12 months is ~$500 a month: Gold, not Legendary
+  // the tier follows the amount over the chosen window: $6,100 over 12 months is Legendary
   const year = renderCard(stats, counts, { now, lang: 'fr', cost: { usd: 6100, period: '1y', days: 365 } });
-  assert.ok(year.includes('12 derniers mois') && year.includes('pas le montant payé') && year.includes('>OR<'));
+  assert.ok(year.includes('12 derniers mois') && year.includes('pas le montant payé') && year.includes('LÉGENDAIRE'));
 });
 
 test('spend tiers climb with the cost', () => {

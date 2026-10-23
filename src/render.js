@@ -204,8 +204,8 @@ export function renderCard(stats, counts, opts = {}) {
   if (cost) {
     gapBefore(16);
     const bh = 58;
-    // tier from the average per 30 days, so a longer window doesn't inflate it
-    const tier = spendTier((cost.usd * 30) / (cost.days || 30));
+    // tier from the amount shown, over the window the user picked
+    const tier = spendTier(cost.usd);
     const { ink, stops } = tier;
     const dark = ink === '#ffffff';
     const grad = tier.flow
