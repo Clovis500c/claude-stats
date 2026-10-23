@@ -6,6 +6,9 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- The spend banner's tier now follows the amount shown for the chosen window (`--cost-period`), not the average per 30 days.
+
 ## [0.10.0] - 2026-10-17
 
 ### Added

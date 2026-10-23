@@ -220,7 +220,7 @@ The spend banner is always de-duplicated: it estimates what was actually billed.
 
 `--cost` adds a banner with the cost of your Claude Code usage over the last 30 days, 5 months or 12 months (`--cost-period 30d|5m|1y`; months are calendar months), **estimated at Anthropic API list prices**, like Claude Code's own cost display. Each response is priced by model: input, cache writes (1.25× input for the 5-minute cache, 2× for the 1-hour cache), cache reads, output, fast mode (2×) and web searches ($10 per 1,000). Subagents are included.
 
-The banner's look climbs with the average per 30 days, so a longer window doesn't inflate it: **Bronze** (under $100), **Silver** ($100+), **Gold** ($500+, sparkles), **Diamond** ($1,500+) and **Legendary** ($5,000+, flowing rainbow). The glint and sparkles are animated, and stay still for visitors who prefer reduced motion.
+The banner's look climbs with the amount over the window you picked: **Bronze** (under $100), **Silver** ($100+), **Gold** ($500+, sparkles), **Diamond** ($1,500+) and **Legendary** ($5,000+, flowing rainbow). The glint and sparkles are animated, and stay still for visitors who prefer reduced motion.
 
 **This is not what you paid.** The banner itself says so ("at API prices, not the amount paid"): on a Pro or Max plan it is the API value of what you used, while the subscription price stays the same. It only covers the history still on your machine: Claude Code deletes transcripts older than 30 days unless you raise `cleanupPeriodDays` in its settings, so a 5- or 12-month window can show less than you really used. Responses from models without a known price are left out; `claude-stats` (without `push`) prints how many.
 
